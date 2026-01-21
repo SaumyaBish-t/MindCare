@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -12,13 +6,72 @@ datasource db {
   provider = "postgresql"
   url      = env("PRISMA_DATABASE_URL")
 }
-model SentimentAnalysis{
-  id String @id @default(cuid())
-  userId        String
-  inputText String
-  result      Json     // Stores the analysis result as JSON
-  description String?  // The mood description
+
+model SentimentAnalysis {
+  id          String   @id @default(cuid())
+  userId      String
+  inputText   String
+  result      Json
+  description String?
   createdAt   DateTime @default(now())
-  
+
   @@map("sentiment_analyses")
+}
+
+model Habit {
+  id              Int               @id @default(autoincrement())
+  userId          String            @map("user_id")
+  title           String
+  description     String?           @default("")
+  category        String            @default("general")
+  targetFrequency String            @default("daily") @map("target_frequency")
+  isActive        Boolean           @default(true) @map("is_active")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  completions     HabitCompletion[]
+
+  @@map("habits")
+}
+
+model HabitCompletion {
+  id             Int      @id @default(autoincrement())
+  habitId        Int      @map("habit_id")
+  userId         String   @map("user_id")
+  completionDate DateTime @map("completion_date")
+
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  // We want to block duplicate completions per (habit, user, date)
+  @@unique([habitId, userId, completionDate])
+  @@map("habit_completions")
+}
+
+model GratitudeEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("gratitude_entries")
+}
+
+model ChatConversation {
+  id        String        @id @default(cuid())
+  userId    String        @unique   // 👈 VERY IMPORTANT
+  messages  ChatMessage[]
+  createdAt DateTime      @default(now())
+}
+
+
+model ChatMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           String // "user" | "assistant"
+  content        String
+  createdAt      DateTime @default(now())
+
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("chat_messages")
 }
