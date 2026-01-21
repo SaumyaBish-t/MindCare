@@ -12,11 +12,12 @@ import Features from './pages/Features'
 import Buddy from './pages/Buddy'
 import SentimentalAnalysis from './pages/SentimentalAnalysis'
 import Goals from './pages/Goals'
-import Reminders from './pages/Reminders'
+import Gratitude from './pages/gratitudeJournal'
 import Resources from './pages/Resources'
 import Progress from './pages/Progress'
 import SignInPage from './pages/SignIn'
 import SignUpPage from './pages/SignUp'
+import HabitBuilder from './components/HabitBuilder';
 
 
 
@@ -122,11 +123,11 @@ const App = () => {
     }
   />
   <Route
-    path="/goals"
+    path="/habits"
     element={
       <>
         <SignedIn>
-          <Goals />
+          <HabitBuilder />
         </SignedIn>
         <SignedOut>
           <RedirectToSignIn />
@@ -135,11 +136,11 @@ const App = () => {
     }
   />
   <Route
-    path="/reminders"
+    path="/gratitude"
     element={
       <>
         <SignedIn>
-          <Reminders />
+          <Gratitude />
         </SignedIn>
         <SignedOut>
           <RedirectToSignIn />
