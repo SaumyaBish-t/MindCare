@@ -1,10 +1,10 @@
-import { SignUp } from '@clerk/clerk-react';
-export default function SignUpPage() {
+import { SignUp } from "@clerk/clerk-react";
+import AuthShell from "./AuthShell.jsx";
 
+export default function SignUpPage() {
   return (
-    <main className="flex h-screen items-center justify-center p-3">
-      <SignUp />
-    </main>
-  ) 
-  
+    <AuthShell heading="Create your account" sub="Begin gently — you can change anything later.">
+      <SignUp signInUrl="/login" afterSignUpUrl="/dashboard" />
+    </AuthShell>
+  );
 }

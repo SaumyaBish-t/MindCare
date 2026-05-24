@@ -1,11 +1,2 @@
-import React from 'react'
-
-const Features = () => {
-  return (
-    <div>
-      
-    </div>
-  )
-}
-
-export default Features
+import Landing from "./Landing.jsx";
+export default function Features() { return <Landing />; }

@@ -1,9 +1,10 @@
-import { SignIn } from '@clerk/clerk-react';
+import { SignIn } from "@clerk/clerk-react";
+import AuthShell from "./AuthShell.jsx";
 
 export default function SignInPage() {
-    return (
-  <main className="flex h-screen items-center justify-center p-3">
-      <SignIn />
-    </main>
-    )
+  return (
+    <AuthShell heading="Welcome back" sub="Pick up where you left off.">
+      <SignIn signUpUrl="/get-started" afterSignInUrl="/dashboard" />
+    </AuthShell>
+  );
 }

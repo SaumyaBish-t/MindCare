@@ -1,159 +1,172 @@
-// src/pages/GratitudeJournal.jsx
-import React, { useEffect, useState, useCallback } from "react";
-import { useAuth, useUser } from "@clerk/clerk-react";
-import { gratitudeAPI } from "../api/gratitude_API.js";
+import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "@clerk/clerk-react";
+import { Icon } from "../lib/icon.jsx";
+import { api } from "../lib/api.js";
+import { PageHeader, EmptyState, Spinner, ConfirmModal, useToast } from "../components/ui-common.jsx";
+
+const formatDayLong = (dateStr) => {
+  const d = new Date(dateStr);
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) return "Today";
+  const yesterday = new Date(Date.now() - 86400000);
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+};
+
 const GratitudeJournal = () => {
-  const { isLoaded, isSignedIn } = useAuth();
-  const { user } = useUser();
-
+  const { getToken } = useAuth();
   const [entries, setEntries] = useState([]);
-  const [input, setInput] = useState("");
+  const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [confirmId, setConfirmId] = useState(null);
+  const { show, node: toastNode } = useToast();
 
-  const loadEntries = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await gratitudeAPI.getEntries();
-      if (res.success) setEntries(res.entries);
-    } catch (err) {
-      console.error("Error loading gratitude entries:", err);
+      const data = await api.gratitudeList(getToken);
+      setEntries(data?.entries || []);
+    } catch (e) {
+      console.error("Load gratitude failed:", e);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [getToken]);
 
-  useEffect(() => {
-    if (isLoaded && isSignedIn && user) {
-      loadEntries();
-    }
-  }, [isLoaded, isSignedIn, user, loadEntries]);
+  useEffect(() => { load(); }, [load]);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text) return;
-
+  const save = async () => {
+    const t = text.trim();
+    if (!t) return;
     try {
-      setSubmitting(true);
-      const res = await gratitudeAPI.createEntry(text);
-      if (res.success) {
-        setInput("");
-        // Optimistic update or reload
-        setEntries((prev) => [res.entry, ...prev]);
+      setSaving(true);
+      const data = await api.gratitudeCreate(t, getToken);
+      if (data?.success && data.entry) {
+        setEntries((prev) => [data.entry, ...prev]);
+        setText("");
+        show("Reflection saved");
       }
-    } catch (err) {
-      console.error("Error creating gratitude entry:", err);
+    } catch (e) {
+      console.error(e);
+      show("Failed to save", "error");
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Delete this entry?")) return;
+  const remove = async (id) => {
     try {
-      await gratitudeAPI.deleteEntry(id);
+      await api.gratitudeDelete(id, getToken);
       setEntries((prev) => prev.filter((e) => e.id !== id));
-    } catch (err) {
-      console.error("Error deleting entry:", err);
+      show("Entry removed");
+    } catch (e) {
+      console.error(e);
+      show("Failed to delete", "error");
+    } finally {
+      setConfirmId(null);
     }
   };
 
-  if (!isLoaded) {
-    return (
-      <div className="flex justify-center items-center min-h-screen">
-        Loading...
-      </div>
-    );
-  }
-
-  if (!isSignedIn) {
-    return (
-      <div className="flex justify-center items-center min-h-screen">
-        <p>Please sign in to access your gratitude journal.</p>
-      </div>
-    );
-  }
+  // Group by date
+  const grouped = {};
+  entries.forEach((e) => {
+    const d = new Date(e.createdAt).toDateString();
+    if (!grouped[d]) grouped[d] = [];
+    grouped[d].push(e);
+  });
 
   return (
-    <div className="bg-gradient-to-br from-yellow-50 to-rose-50 min-h-screen">
-      <div className="container mx-auto px-4 py-8 max-w-3xl">
-        <header className="mb-8 text-center">
-          <h1 className="text-4xl font-bold text-gray-800">
-            🌼 Gratitude Journal
-          </h1>
-          <p className="text-gray-600 mt-3">
-            Take a moment to notice the good things in your day. Even tiny ones
-            count.
-          </p>
-        </header>
+    <div className="container-sm fade-in" style={{ padding: "40px 24px 64px" }}>
+      <PageHeader
+        icon="heart"
+        title="Gratitude journal"
+        subtitle="Take a moment to notice the good things in your day."
+      />
 
-        {/* New Entry Form */}
-        <div className="bg-white rounded-xl p-6 shadow-md border border-gray-200 mb-8">
-          <h2 className="text-xl font-semibold mb-3">
-            What are you grateful for today?
-          </h2>
-          <p className="text-sm text-gray-500 mb-2">
-            Try listing 3 things. They can be very small: a warm cup of tea, a
-            kind message, a comfortable bed.
-          </p>
-          <form onSubmit={handleSubmit}>
-            <textarea
-              rows={4}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 mb-4"
-              placeholder={`Example:\n- The sunlight in my room\n- A friend who checked on me\n- I got through today`}
-            />
-            <button
-              type="submit"
-              disabled={submitting}
-              className="bg-yellow-500 text-white px-6 py-3 rounded-lg font-semibold hover:bg-yellow-600 transition-colors disabled:opacity-60"
-            >
-              {submitting ? "Saving..." : "Save Entry"}
-            </button>
-          </form>
+      {/* New entry */}
+      <div className="card" style={{ padding: 28, marginBottom: 32 }}>
+        <h3 style={{ marginBottom: 4 }}>What are you grateful for today?</h3>
+        <p style={{ fontSize: 13, color: "var(--dawn-text-muted)", marginBottom: 16 }}>
+          Try listing 3 things — they can be very small. The view from a window. A warm drink. A text from a friend.
+        </p>
+        <textarea
+          className="field"
+          rows={5}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="I'm grateful for…"
+          style={{ marginBottom: 14 }}
+        />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <span style={{ fontSize: 12, color: "var(--dawn-text-muted)" }}>{text.length} characters</span>
+          <button className="btn btn-primary" onClick={save} disabled={!text.trim() || saving}>
+            {saving ? <><Spinner size={14} light /> Saving…</> : <><Icon name="check" size={16} /> Save entry</>}
+          </button>
         </div>
-
-        {/* Previous entries */}
-        <section>
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">
-            Your Past Entries
-          </h2>
-
-          {loading ? (
-            <div className="text-center text-gray-500">Loading entries...</div>
-          ) : entries.length === 0 ? (
-            <div className="text-center text-gray-500">
-              No entries yet. Start with one small thing you appreciate today 💛
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {entries.map((entry) => (
-                <article
-                  key={entry.id}
-                  className="bg-white rounded-xl p-4 shadow-sm border border-gray-200"
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="text-sm text-gray-500">
-                      {new Date(entry.createdAt).toLocaleString()}
-                    </span>
-                    <button
-                      onClick={() => handleDelete(entry.id)}
-                      className="text-xs text-red-500 hover:text-red-700"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                  <div className="whitespace-pre-wrap text-gray-800">
-                    {entry.content}
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
       </div>
+
+      {/* Past entries */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <h2>Your reflections</h2>
+        <span style={{ fontSize: 13, color: "var(--dawn-text-muted)" }}>
+          {entries.length} {entries.length === 1 ? "reflection" : "reflections"}
+        </span>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 40 }}><Spinner size={24} /></div>
+      ) : entries.length === 0 ? (
+        <EmptyState
+          icon="heart"
+          title="No reflections yet"
+          subtitle="Start with one small thing you appreciate today."
+          action={
+            <button className="btn btn-primary" onClick={() => document.querySelector("textarea")?.focus()}>
+              <Icon name="pen-line" size={16} /> Write your first
+            </button>
+          }
+        />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+          {Object.entries(grouped).map(([date, group]) => (
+            <div key={date}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--dawn-text-secondary)", letterSpacing: "0.02em" }}>
+                  {formatDayLong(date)}
+                </span>
+                <div style={{ flex: 1, height: 1, background: "var(--dawn-peach-subtle)", opacity: 0.5 }} />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {group.map((e) => (
+                  <div key={e.id} className="card" style={{ padding: 20, borderLeft: "3px solid var(--dawn-peach)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
+                      <span style={{ fontSize: 12, color: "var(--dawn-text-muted)" }}>
+                        {new Date(e.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                      </span>
+                      <button className="btn-icon btn-icon-danger" onClick={() => setConfirmId(e.id)} title="Delete">
+                        <Icon name="trash-2" size={15} />
+                      </button>
+                    </div>
+                    <p style={{ color: "var(--dawn-text-primary)", whiteSpace: "pre-wrap", lineHeight: 1.6, fontSize: 15 }}>
+                      {e.content}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <ConfirmModal
+        open={confirmId !== null}
+        title="Delete this reflection?"
+        message="This gratitude entry will be permanently removed."
+        onConfirm={() => remove(confirmId)}
+        onCancel={() => setConfirmId(null)}
+      />
+      {toastNode}
     </div>
   );
 };

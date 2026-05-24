@@ -1,453 +1,288 @@
-import React,{useState,useEffect} from 'react'
-import { searchYoutubeVideos } from '../api/youtubeSearch';
+import { useEffect, useState } from "react";
+import { Icon } from "../lib/icon.jsx";
+import { PageHeader, EmptyState, Spinner } from "../components/ui-common.jsx";
+import { searchYoutubeVideos } from "../api/youtubeSearch";
+
+const CATEGORIES = [
+  { id: "anxiety",       icon: "wind",        title: "Anxiety",       desc: "Calm racing thoughts and find your ground.", query: "anxiety relief meditation" },
+  { id: "depression",    icon: "cloud-rain",  title: "Depression",    desc: "Gentle reads for heavy days.",               query: "coping with depression therapy" },
+  { id: "sleep",         icon: "moon",        title: "Sleep",         desc: "Rituals and stories to ease into rest.",     query: "guided sleep meditation" },
+  { id: "mindfulness",   icon: "leaf",        title: "Mindfulness",   desc: "Practices for noticing this moment.",        query: "mindfulness meditation for beginners" },
+  { id: "relationships", icon: "users",       title: "Relationships", desc: "Connection, boundaries, and repair.",        query: "healthy relationships boundaries" },
+  { id: "self-worth",    icon: "sparkles",    title: "Self-worth",    desc: "Recognise your own value.",                  query: "building self worth confidence" },
+];
+
+const POPULAR = ["panic attacks", "morning routine", "loneliness", "grief", "burnout"];
+
+const CrisisCard = ({ icon, title, number, sub, href }) => (
+  <a
+    href={href}
+    style={{
+      display: "flex", gap: 14, padding: 18,
+      background: "rgba(255,255,255,0.6)",
+      border: "1px solid rgba(199,80,80,0.15)",
+      borderRadius: 12, alignItems: "center", transition: "all 0.15s",
+    }}
+  >
+    <div
+      style={{
+        width: 44, height: 44, borderRadius: 14,
+        background: "rgba(199,80,80,0.12)", color: "var(--dawn-danger)",
+        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+      }}
+    >
+      <Icon name={icon} size={20} />
+    </div>
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 13, color: "var(--dawn-text-muted)", marginBottom: 2 }}>{title}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, color: "var(--dawn-danger)", lineHeight: 1.1 }}>{number}</div>
+      <div style={{ fontSize: 12, color: "var(--dawn-text-muted)", marginTop: 2 }}>{sub}</div>
+    </div>
+  </a>
+);
+
+function VideoCard({ video, playing, onPlay, fallbackGradient }) {
+  return (
+    <div className="card card-hover" style={{ overflow: "hidden" }}>
+      {playing ? (
+        <div style={{ position: "relative", aspectRatio: "16/9" }}>
+          <iframe
+            title={video.title}
+            src={`https://www.youtube.com/embed/${video.id}?autoplay=1`}
+            style={{ width: "100%", height: "100%", border: "none" }}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          />
+        </div>
+      ) : (
+        <div
+          style={{
+            position: "relative", aspectRatio: "16/9", cursor: "pointer",
+            background: video.thumbnail ? `url(${video.thumbnail}) center/cover` : fallbackGradient,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+          onClick={onPlay}
+        >
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.15)" }} />
+          <button
+            aria-label={`Play ${video.title}`}
+            style={{
+              width: 56, height: 56, borderRadius: "50%",
+              background: "var(--dawn-peach)", color: "#fff",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 4px 16px rgba(212,129,107,0.4)", zIndex: 1,
+            }}
+          >
+            <Icon name="play" size={22} strokeWidth={2.5} />
+          </button>
+        </div>
+      )}
+      <div style={{ padding: 18 }}>
+        <h3 style={{ marginBottom: 6, fontSize: 16, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+          {video.title}
+        </h3>
+        {video.channelTitle && (
+          <p style={{ fontSize: 12, color: "var(--dawn-text-muted)", marginBottom: 8 }}>{video.channelTitle}</p>
+        )}
+        {video.description && (
+          <p style={{ fontSize: 13, color: "var(--dawn-text-muted)", lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+            {video.description}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const GRADIENTS = [
+  "linear-gradient(135deg, #ffd5b9, #f5b6c6)",
+  "linear-gradient(135deg, #f5d5e0, #e8dff5)",
+  "linear-gradient(135deg, #d9e8f5, #e8dff5)",
+  "linear-gradient(135deg, #ffe8d6, #ffd5b9)",
+];
+
 const Resources = () => {
+  const [query, setQuery] = useState("");
+  const [selectedCat, setSelectedCat] = useState(null);
+  const [videos, setVideos] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [playing, setPlaying] = useState(null);
+  const [error, setError] = useState(null);
+  const [hasSearched, setHasSearched] = useState(false);
 
-  const [selectedCategory, setSelectedCategory] = useState('all');
-  const [featuredVideos,setFeaturedVideos]=useState([]);
-  const [categoryVideos,setCategoryVideos]=useState({});
-  const [searchResults,setSearchResults]=useState([]);
-  const [searchTerm,setSearchTerm]=useState("");
-  const [loading,setLoading]=useState(false);
-  const [playingVideo, setPlayingVideo] = useState(null);
-
-
-  const defResourcesCategories=[
-    {
-      id:"stress-anxiety",
-      title:"Stress and Anxiety Relief",
-      description:"Calming techniques and anxiety management",
-      icon:"😰",
-      searchQueries:[
-        "stress relief meditation",
-        "anxiety breathing exercises",
-        "calming music for stress"
-      ],
-      color:"from-blue-100 to-blue-300",
-    },
-    {
-      id:"mindfulness",
-      title:"Mindfull & Meditation",
-      description:"Present moment awareness and meditation practices",
-      icon:"🧘‍♂️",
-      searchQueries:[
-        "mindfulness meditation",
-        "guided meditation for stress",
-        "mindfulness exercises",
-        "daily mindfulness tips"
-      ],
-      color:"from-green-100 to-green-300",
-    },
-    {
-      id:"self-care",
-      title:"Self-Care & Wellness",
-      description:"Daily practices for mental wellness",
-      icon:"💆‍♀️",
-      searchQueries:[
-        "self-care routines",
-        "self-care tips for anxiety",
-        "mental health tips",
-        "wellness practices",
-      ],
-      color:"from-pink-100 to-pink-300",
-    },
-    {
-      id:"mood-boost",
-      title:"Mood Enhancement",
-      description:"Activities to boost your mood",
-      icon:"😊",
-      searchQueries:[
-        "uplifting music",
-        "mood boosting activities",
-        "positive affirmations",
-        "motivational videos"
-      ],
-      color:"from-yellow-100 to-yellow-300",
-    },
-    {
-      id:"sleep-relaxation",
-      title:"Sleep & Relaxation",
-      description:"Techniques for better sleep and relaxation",
-      icon:"😴",
-      searchQueries:[
-        "sleep meditation",
-        "bedtime relaxation",
-        "calming sleep music",
-        "guided sleep meditation"
-      ],
-      color:"from-purple-100 to-purple-300",
-    },
-    {
-      id:"crisis-support",
-      title:"Crisis Support",
-      description:"Resources for immediate help in crisis",
-      icon:"🚨",
-      searchQueries:[
-        "crisis support techniques",
-        "mental health emergency help",
-        "grounding exercises for crisis",
-        "crisis management tips"
-      ],
-      color:"from-red-100 to-red-300",
-    }
-  ];
-
-  useEffect(()=>{
-    loadFeaturedContent();
-  },[]);
-
-  const loadFeaturedContent=async ()=>{
+  const runSearch = async (q) => {
+    if (!q || !q.trim()) return;
     setLoading(true);
-    try{
-      const featuredQueries=[
-        'mental health wellness tips',
-        'meditation for beginners',
-        'positive mental health',
-        'wellness motivation'
-      ];
-
-      const randomQuery=featuredQueries[Math.floor(Math.random()*featuredQueries.length)];
-      const result=await searchYoutubeVideos(randomQuery,6);
-      if(result.success){
-        setFeaturedVideos(result.videos);
+    setError(null);
+    setHasSearched(true);
+    setPlaying(null);
+    try {
+      const r = await searchYoutubeVideos(q, 8);
+      if (r.success) setVideos(r.videos);
+      else {
+        setVideos([]);
+        setError(r.error || "Search failed");
       }
-    }
-    catch(error){
-      console.error("Error loading featured content:", error);
-    }
-    finally{
+    } catch (e) {
+      setError(e.message);
+    } finally {
       setLoading(false);
     }
   };
 
-  const loadCategoryVideos=async (category) =>{
-    setLoading(true);
-    try{
-      const categoryData=defResourcesCategories.find(cat=>cat.id===category);
-      if(categoryData){
-        const randomQuery=categoryData.searchQueries[Math.floor(Math.random()*categoryData.searchQueries.length)];
-        const result=await searchYoutubeVideos(randomQuery,6);
-        if(result.success){
-          setCategoryVideos(prev=>({
-            ...prev,
-            [category]: result.videos
-          }));
-        }
-      }
-    }
-    catch(error){
-      console.error("Error loading category videos:",error);
-    }
-    finally{
-      setLoading(false);
-    }
-  };
+  // Load a default set on mount
+  useEffect(() => {
+    runSearch("mindfulness wellness tips");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const handleSearch=async (query)=>{
-    if(!query.trim()) return;
-    setLoading(true);
-    setSearchTerm(query);
-    try{
-      const result=await searchYoutubeVideos(query,12);
-      if(result.success){
-        setSearchResults(result.videos);
-        setSelectedCategory('search');
-      }
-    }
-    catch(error){
-      console.error("Search error:",error);
-    }
-    finally{
-      setLoading(false);
-    }
-  };
-  
-  const handleCategoryClick=(categoryId)=>{
-    setSelectedCategory(categoryId);
-    if(categoryId!=="all" && categoryId!=="search" && !categoryVideos[categoryId]){
-      loadCategoryVideos(categoryId);
-    }
+  const pickCategory = (c) => {
+    setSelectedCat(c.id);
+    setQuery(c.title);
+    runSearch(c.query);
   };
 
   return (
-    <>
-    <div className='flex justify-center'>
-      <img className="w-full" src="Screenshot 2025-07-27 153851.png" alt="" />
-    </div>
-    <div className='wellness-resources bg-amber-50 min-h-screen'>
-      <div className='hero-section bg-gradient-to-r from-blue-50 to-green-50 p-8 rounded-lg mb-8 mx-4 mt-4'>
-        <h1 className='text-4xl font-bold text-center mb-4 text-green-600'>
-          Wellness Resources
-        </h1>
-        <p className='text-center text-gray-600 mb-6 text-lg'>
-          Discover mental health resources, meditation guides, and wellness content to support your journey
-        </p>
-        {/* Search Bar */}
-        <div className='max-w-2xl mx-auto mb-6'>
-          <div className='flex gap-2'>
-            <input 
-            type="text"
-            placeholder='Search for wellness content...'
-            className='flex-1 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500' 
-            value={searchTerm}
-            onChange={(e)=> setSearchTerm(e.target.value)}
-            onKeyDown={(e)=>e.key==="Enter" && handleSearch(searchTerm)}
-            />
-            <button
-            onClick={()=>handleSearch(searchTerm)}
-            className='px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors'
-            disabled={loading}
-            >
-              {loading?"Searching...":"Search"}
-            </button>
-          </div>
-          {/*Popular Searches */}
-          <div className='mt-3'>
-            <p className='text-sm text-gray-600 mb-2'>
-              Popular Searches:
-            </p>
-            <div className='flex flex-wrap gap-2 justify-center'>
-              {["meditation for beginners","anxiety relief","sleep music","motivational videos","breathing exercises"].map(search=>(
-                <button
-                key={search}
-                onClick={()=>handleSearch(search)}
-                className='px-3 py-1 bg-white text-gray-700 rounded-full text-sm hover:bg-gray-100 shadow-sm transition-colors'
-                >
-                  {search}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        {/*CTA for mood analysis */}
-        <div className='text-center'>
-        <a href="/sentimentalanalysis" className='bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 mr-4 inline-block transition-colors'>
-        Get Personalized recommendations
-        </a>
-        <span className='text-gray-500'>or browse categories below</span>
-        
-        </div>
-      </div>
-      <CrisisResources />
+    <div className="container fade-in" style={{ padding: "40px 24px 64px", maxWidth: 1120 }}>
+      <PageHeader
+        icon="book-open"
+        title="Wellness resources"
+        subtitle="A small library of videos and crisis support — curated with care."
+      />
 
-      {/* Categories Section */}
-      <div className='categories-section mb-12 mx-4'>
-        <h2 className='text-2xl font-bold text-center mb-6 text-gray-800'>
-          Explore Categories
-        </h2>
-        <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'>
-          {defResourcesCategories.map(category=>(
-            <CategoryCard 
-             key={category.id}
-             category={category}
-             isSelected={selectedCategory===category.id}
-             onClick={()=>handleCategoryClick(category.id)}
-             />
+      {/* Search */}
+      <div className="card" style={{ padding: 20, marginBottom: 24 }}>
+        <div style={{ position: "relative" }}>
+          <span style={{ position: "absolute", left: 16, top: "50%", transform: "translateY(-50%)", color: "var(--dawn-text-muted)" }}>
+            <Icon name="search" size={18} />
+          </span>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && runSearch(query)}
+            placeholder="Search resources — anxiety, sleep, gratitude…"
+            style={{
+              width: "100%", padding: "14px 110px 14px 46px",
+              borderRadius: 999, border: "1px solid var(--dawn-peach-subtle)",
+              background: "var(--dawn-bg)", fontSize: 15,
+            }}
+          />
+          <button
+            className="btn btn-primary"
+            style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", padding: "8px 18px" }}
+            onClick={() => runSearch(query)}
+            disabled={loading || !query.trim()}
+          >
+            {loading ? "…" : "Search"}
+          </button>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: "var(--dawn-text-muted)" }}>Popular:</span>
+          {POPULAR.map((p) => (
+            <button
+              key={p}
+              onClick={() => { setQuery(p); runSearch(p); }}
+              style={{
+                padding: "5px 12px", borderRadius: 999,
+                background: "var(--dawn-surface-alt)",
+                fontSize: 12, color: "var(--dawn-text-secondary)",
+                transition: "all 0.15s",
+              }}
+            >
+              {p}
+            </button>
           ))}
         </div>
       </div>
-      {/*Content display */}
-      {selectedCategory==="all" &&(
-        <FeaturedContent
-        videos={featuredVideos}
-        playingVideo={playingVideo}
-        setPlayingVideo={setPlayingVideo}
-        loading={loading} 
+
+      {/* Crisis */}
+      <div
+        className="card"
+        style={{
+          padding: 24, marginBottom: 32,
+          background: "var(--dawn-danger-bg)", border: "none",
+          borderLeft: "3px solid var(--dawn-danger)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <Icon name="life-buoy" size={20} color="var(--dawn-danger)" />
+          <h3 style={{ color: "var(--dawn-danger)" }}>Crisis support</h3>
+        </div>
+        <p style={{ fontSize: 14, color: "var(--dawn-text-secondary)", marginBottom: 18 }}>
+          If you're in crisis or having thoughts of harm, please reach out — help is available, free, and confidential.
+        </p>
+        <div className="grid-2">
+          <CrisisCard icon="phone" title="988 Suicide & Crisis Lifeline" number="988" sub="Call or text · 24/7 · USA" href="tel:988" />
+          <CrisisCard icon="ambulance" title="Emergency services" number="911" sub="Immediate help · 24/7 · USA" href="tel:911" />
+        </div>
+      </div>
+
+      {/* Categories */}
+      <h2 style={{ marginBottom: 16 }}>Browse by topic</h2>
+      <div className="grid-3" style={{ marginBottom: 40 }}>
+        {CATEGORIES.map((c) => {
+          const selected = selectedCat === c.id;
+          return (
+            <button
+              key={c.id}
+              onClick={() => pickCategory(c)}
+              className="card card-hover"
+              style={{
+                padding: 22, textAlign: "left",
+                border: `1.5px solid ${selected ? "var(--dawn-peach)" : "rgba(212,129,107,0.06)"}`,
+                background: selected ? "var(--dawn-peach-subtle)" : "var(--dawn-surface)",
+              }}
+            >
+              <div className="icon-bubble" style={{ marginBottom: 14 }}><Icon name={c.icon} size={22} /></div>
+              <h3 style={{ marginBottom: 6 }}>{c.title}</h3>
+              <p style={{ fontSize: 13, color: "var(--dawn-text-muted)", lineHeight: 1.6 }}>{c.desc}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Videos */}
+      <h2 style={{ marginBottom: 16 }}>Watch & listen</h2>
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 40 }}><Spinner size={24} /></div>
+      ) : error ? (
+        <div className="card" style={{ padding: 18, color: "var(--dawn-text-muted)" }}>
+          <Icon name="info" size={14} /> {error}. (Set <code>VITE_YOUTUBE_API_KEY</code> to enable search.)
+        </div>
+      ) : videos.length === 0 ? (
+        <EmptyState
+          icon="search"
+          title={hasSearched ? "No results" : "Search to begin"}
+          subtitle="Try a different keyword or pick a category above."
         />
+      ) : (
+        <div className="grid-2">
+          {videos.map((v, i) => (
+            <VideoCard
+              key={v.id}
+              video={v}
+              playing={playing === v.id}
+              onPlay={() => setPlaying(v.id)}
+              fallbackGradient={GRADIENTS[i % GRADIENTS.length]}
+            />
+          ))}
+        </div>
       )}
 
-      {selectedCategory==="search" && (
-        <SearchResults
-        videos={searchResults}
-        searchTerm={searchTerm}
-        playingVideo={playingVideo}
-        setPlayingVideo={setPlayingVideo}
-        loading={loading} />
-      )}
-      {selectedCategory!=="all" && selectedCategory!=="search" && (
-        <CategoryContent
-        category={defResourcesCategories.find(cat=>cat.id===selectedCategory)}
-        videos={categoryVideos[selectedCategory] || []}
-        playingVideo={playingVideo}
-        setPlayingVideo={setPlayingVideo}
-        loading={loading} 
-        />
-      )}
+      <div
+        style={{
+          marginTop: 40, padding: 24,
+          background: "var(--dawn-surface-alt)", borderRadius: 16, textAlign: "center",
+        }}
+      >
+        <Icon name="info" size={18} color="var(--dawn-info)" />
+        <p style={{ marginTop: 8, fontSize: 13, color: "var(--dawn-text-muted)", maxWidth: 500, margin: "8px auto 0" }}>
+          A reminder: these resources support — they don't replace — care from a licensed professional.
+          If something resonates, follow up with a therapist who can know your full story.
+        </p>
+      </div>
     </div>
-    </>
-    
   );
 };
 
-// Crisis Resources Component
-const CrisisResources=()=>(
-  <div className='crisis-resources bg-red-50 border-2 border-red-200 p-6 rounded-lg mb-8 mx-4'>
-    <h3 className='text-red-800 font-bold text-xl mb-4 text-center'>
-      🆘 Need Immediate Help?
-    </h3>
-    <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
-      <div className='text-center bg-white p-4 rounded-lg shadow-sm'>
-        <div className='font-bold text-red-700 mb-1'>
-          Crisis Hotline
-        </div>
-        <div className='text-3xl font-bold text-red-600'>
-          988
-        </div>
-        <div className='text-sm text-gray-600'>
-          24/7 Support Available
-        </div>
-
-      </div>
-      <div className='text-center bg-white p-4 rounded-lg shadow-sm'>
-        <div className='font-bold text-red-600'>
-          Emergency Helpline Services
-        </div>
-        <div className='text-3xl font-bold text-red-600'>
-          911
-        </div>
-        <div className='text-sm text-gray-600'>
-          Life threatening emergencies
-        </div>
-
-      </div>
-
-    </div>
-
-  </div>
-);
-
-const CategoryCard=({category,isSelected,onClick})=>(
-  <div className={`category-card bg-gradient-to-br ${category.color} p-4 rounded-lg cursor-pointer transition-transform transform hover:scale-105 ${isSelected ? 'ring-4 ring-blue-300' : ''}`}
-  onClick={onClick}
-  >
-    <div className='text-5xl mb-3 text-center text-gray-800'>
-      {category.icon}
-    </div>
-    <h3 className='font-bold text-lg text-gray-800 mb-2 text-center'>
-      {category.title}
-    </h3>
-    <p className='text-gray-600 text-sm text-center'>
-      {category.description}
-    </p>
-
-  </div>
-);
-const FeaturedContent=({videos,playingVideo,setPlayingVideo,loading})=>(
-  <div className='featured-content mb-12 mx-4'>
-    <h2 className='text-2xl font-bold text-center mb-6 text-gray-800'>
-      ✨ Featured Wellness Content
-    </h2>
-    {loading ? (
-      <LoadingSpinner />
-    ):(<VideoGrid
-    videos={videos}
-    playingVideo={playingVideo}
-    setPlayingVideo={setPlayingVideo}
-     />
-    )}
-  </div>
-)
-
-const SearchResults=({videos,searchTerm,playingVideo,setPlayingVideo,loading})=>(
-  <div className='search-results mb-12 mx-4'>
-    <h2 className='text-center font-semibold text-2xl mb-2 text-gray-800'>
-      Search Results
-    </h2>
-    <p className='text-center text-gray-600 mb-6'>
-      Showing results for:<em>"{searchTerm}"</em>
-    </p>
-    {loading ? (
-      <LoadingSpinner/>
-    ):(
-      <VideoGrid
-      videos={videos}
-      playingVideo={playingVideo}
-      setPlayingVideo={setPlayingVideo}
-     />
-    )}
-    
-  </div>
-  
-)
-const CategoryContent = ({ category, videos, playingVideo, setPlayingVideo, loading }) => (
-  <div className="category-content mb-12 mx-4">
-    <div className="text-center mb-6">
-      <div className="text-6xl mb-2">{category?.icon}</div>
-      <h2 className="text-2xl font-bold mb-2 text-gray-800">{category?.title}</h2>
-      <p className="text-gray-600">{category?.description}</p>
-    </div>
-    {loading ? (
-      <LoadingSpinner />
-    ) : (
-      <VideoGrid 
-        videos={videos}
-        playingVideo={playingVideo}
-        setPlayingVideo={setPlayingVideo}
-      />
-    )}
-  </div>
-)
-
-
-const VideoGrid=({videos,playingVideo,setPlayingVideo})=>(
-  <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6'>
-    {videos.map((video)=>(
-      <div key={video.id} className='video-card bg-white rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow'>
-        {playingVideo===video.id ? (
-          <div className='aspect-w-16 aspect-h-9'>
-            <iframe 
-            className='w-full h-48 border-none'
-            src={`https://www.youtube.com/embed/${video.id}?autoplay=1`}
-            title={video.title}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen>
-            </iframe>
-          </div>
-        ):(
-          <div 
-          className='relative cursor-pointer group'
-          onClick={()=> setPlayingVideo(video.id)}
-          >
-            <img 
-            src={video.thumbnail} 
-            alt={video.title}
-            className='w-full h-48 object-cover group-hover:opacity-90 transition-opacity' 
-            />
-            <div className='absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 group-hover:bg-opacity-50 transition-all'>
-              <div className='w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-lg'>
-                <span className='text-white text-2xl ml-1'>
-                  ▶
-                </span>
-
-              </div>
-
-            </div>
-
-          </div>
-        )}
-        <div className='p-4'>
-          <h4 className='font-semibold text-sm mb-2 line-clamp-2 text-gray-800'>
-            {video.title}
-          </h4>
-          <p className='text-xs text-gray-600 mb-1'>
-            {video.channelTitle}
-          </p>
-          <p className='text-xs text-gray-500 line-clamp-2'>
-            {video.description}
-          </p>
-
-        </div>
-
-      </div>
-    ))}
-
-  </div>
-  
-);
-const LoadingSpinner = () => (
-  <div className="flex justify-center items-center py-12">
-    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-    <span className="ml-4 text-gray-600">Loading wellness content...</span>
-  </div>
-);
-
-export default Resources
+export default Resources;

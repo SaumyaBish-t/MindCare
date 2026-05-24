@@ -1,434 +1,322 @@
+import { useCallback, useEffect, useState } from "react";
+import { useAuth, useUser } from "@clerk/clerk-react";
+import { Icon } from "../lib/icon.jsx";
+import { api } from "../lib/api.js";
+import { PageHeader, EmptyState, Spinner, ConfirmModal, useToast } from "./ui-common.jsx";
 
-import React,{useState,useEffect,useCallback} from "react";
-import {useAuth, useUser} from "@clerk/clerk-react" // Fixed import
-import { habitAPI } from "../api/habitAPI";
+const CATEGORIES = [
+  { id: "mindfulness", label: "Mind",   icon: "brain" },
+  { id: "health",      label: "Body",   icon: "activity" },
+  { id: "wellness",    label: "Wellness", icon: "leaf" },
+  { id: "reflection",  label: "Reflect", icon: "pen-line" },
+  { id: "movement",    label: "Move",   icon: "footprints" },
+  { id: "learning",    label: "Learn",  icon: "book-open" },
+  { id: "general",     label: "General", icon: "circle" },
+];
 
-const HabitBuilder=()=>{
-    const {isSignedIn, isLoaded}=useAuth(); // Fixed hook usage
-    const {user} = useUser(); // Added useUser hook
-    const [habits,setHabits]=useState([]);
-    const [loading,setLoading]=useState(true);
-    const [showCreateForm,setShowCreateForm]=useState(false);
-    const [streaks,setStreaks]=useState({});
+const TEMPLATES = [
+  { title: "Morning meditation",    desc: "5 minutes of mindful breathing", category: "mindfulness", icon: "brain" },
+  { title: "Drink 8 glasses of water", desc: "Stay hydrated through the day", category: "health", icon: "droplets" },
+  { title: "Gratitude journal",     desc: "Write 3 things you're grateful for", category: "reflection", icon: "heart" },
+  { title: "10-minute walk",        desc: "Take a peaceful walk outside", category: "movement", icon: "footprints" },
+  { title: "Read for 20 minutes",   desc: "Expand your mind with reading", category: "learning", icon: "book-open" },
+  { title: "Deep breathing",        desc: "Practice 4-7-8 breathing", category: "wellness", icon: "wind" },
+];
 
-    //Pre-Defined Habit List
-    const habitTemplates=[
-    {
-        title:"Morning Meditation",
-        description:"5 minutes of mindful meditation",
-        category:"mindfulness", // Fixed spelling
-        icon:"🧘‍♂️"
-    },
-    {
-        title:"Drink 8 glasses of water",
-        description:"Stay hydrated throughout the day", // Fixed description
-        category:"health",
-        icon:"💧"
-    },
-    {
-        title:"Gratitude Journal",
-        description:"Write 3 things you're grateful for",
-        category:"reflection",
-        icon:"📝"
-    },
-    {
-        title:"10-minute Walk",
-        description: "Take a peaceful walk outside",
-        category: "movement",
-        icon: "🚶‍♂️"
-    },
-    {
-        title:"Read for 20 Minutes",
-        description:"Expand your mind with reading",
-        category:"learning",
-        icon:"📖"
-    },
-    {
-      title: "Deep Breathing Exercise",
-      description: "Practice 4-7-8 breathing technique",
-      category: "wellness",
-      icon: "🌬️"
-    }
-    ];
+const bg = (c) => ({ peach: "var(--dawn-peach-subtle)", success: "var(--dawn-success-bg)", warning: "var(--dawn-warning-bg)" }[c]);
+const fg = (c) => ({ peach: "var(--dawn-peach)", success: "var(--dawn-success)", warning: "var(--dawn-warning)" }[c]);
 
-    const categoryColors = {
-        mindfulness: "from-purple-100 to-purple-200 border-purple-300",
-        health: "from-green-100 to-green-200 border-green-300",
-        reflection: "from-blue-100 to-blue-200 border-blue-300",
-        movement: "from-orange-100 to-orange-200 border-orange-300",
-        learning: "from-indigo-100 to-indigo-200 border-indigo-300",
-        wellness: "from-pink-100 to-pink-200 border-pink-300",
-        general: "from-gray-100 to-gray-200 border-gray-300"
-    };
+function StatBlock({ icon, value, label, accent }) {
+  return (
+    <div className="card" style={{ padding: 22, background: "var(--dawn-surface-alt)", border: "none" }}>
+      <div className="icon-bubble icon-bubble-sm" style={{ background: bg(accent), color: fg(accent), marginBottom: 12 }}>
+        <Icon name={icon} size={16} />
+      </div>
+      <div style={{ fontSize: 24, fontWeight: 700, color: fg(accent), lineHeight: 1.1, marginBottom: 4 }}>{value}</div>
+      <div style={{ fontSize: 13, color: "var(--dawn-text-muted)" }}>{label}</div>
+    </div>
+  );
+}
 
-    const loadStreaks=useCallback(async (habitsList)=>{
-        const streakPromises=habitsList.map(async (habit) =>{
-            try{
-                const response=await habitAPI.getHabitStreak(habit.id);
-                return {[habit.id]:response.streak || 0};
-            }
-            catch (error) {
-            console.error(`Error loading streak for habit ${habit.id}:`, error);
-            return { [habit.id]: 0 };
+const HabitBuilder = () => {
+  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { user } = useUser();
+
+  const [habits, setHabits] = useState([]);
+  const [streaks, setStreaks] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [draft, setDraft] = useState({ title: "", description: "", category: "mindfulness", template: null, targetFrequency: "daily" });
+  const [confirmId, setConfirmId] = useState(null);
+  const { show, node: toastNode } = useToast();
+
+  const loadStreaks = useCallback(async (list) => {
+    const results = await Promise.all(
+      list.map(async (h) => {
+        try {
+          const r = await api.habitsStreak(h.id, getToken);
+          return [h.id, r?.streak ?? 0];
+        } catch {
+          return [h.id, 0];
         }
-    });
-        const streakResults=await Promise.all(streakPromises);
-        const streakMap=streakResults.reduce((acc,curr)=>({...acc,...curr}),{});
-        setStreaks(streakMap);
-    },[]);
-
-    const loadHabits = useCallback(async () =>{
-        try{
-            setLoading(true);
-            const response=await habitAPI.getHabits();
-            if(response.success){
-                setHabits(response.habits);
-                loadStreaks(response.habits);
-            }
-        }
-        catch(error){
-            console.error("Error loading habits",error);
-        }
-        finally{
-            setLoading(false);
-        }
-    },[loadStreaks]);
-
-    useEffect(()=>{
-        if(isLoaded && isSignedIn && user){ // Fixed condition
-            loadHabits();
-        }
-    },[isLoaded,isSignedIn,user,loadHabits]); // Fixed dependencies
-
-    const handleCompleteHabit=async (habitId)=>{
-        try{
-            await habitAPI.completeHabit(habitId);
-            loadHabits();
-        }
-        catch(error){
-            console.error("Error completing habit:",error);
-        }
-    };
-
-    const handleDeleteHabit=async (habitId)=>{
-        if(window.confirm("Are you sure you want to delete this habit?")){
-            try{
-                await habitAPI.deleteHabit(habitId);
-                loadHabits();
-            }
-            catch(error){
-                console.error("Error deleting habit:",error);
-            }
-        }
-    };
-
-    if(!isLoaded){
-        return <div className="flex justify-center items-center min-h-screen">Loading...</div>;
-    }
-
-    if(!isSignedIn){ // Fixed condition
-        return (
-            <div className="flex justify-center items-center min-h-screen">
-                <p>Please sign in to access your habits.</p>
-            </div>
-        );
-    }
-
-    return (
-        <div className="habit-builder bg-gradient-to-br from-blue-50 to-green-50 min-h-screen">
-            <div className="container mx-auto px-4 py-8">
-                <div className="text-center mb-8">
-                    <h1 className="text-4xl font-bold text-gray-800">🎯 Habit Builder</h1> {/* Fixed CSS class */}
-                    <p className="text-lg text-gray-600 mb-6">
-                        Build positive habits, one day at a time. Small consistent actions create lasting change.
-                    </p>
-                </div>
-
-                {/* Stats Overview */}
-                <HabitStats habits={habits} streaks={streaks}/>
-
-                {/* Create Habit Section */}
-                <div className="mb-8">
-                    <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-2xl font-bold text-gray-800">Your Habits</h2>
-                        <button 
-                        onClick={()=> setShowCreateForm(!showCreateForm)}
-                        className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors font-semibold">
-                            {showCreateForm?'Cancel':'+ Add New Habit'}
-                        </button>
-                    </div>
-
-                    {showCreateForm && (
-                        <CreateHabitForm
-                        templates={habitTemplates}
-                        onHabitCreated={()=>{
-                            setShowCreateForm(false);
-                            loadHabits();
-                        }}
-                        onCancel={()=>setShowCreateForm(false)}
-                        />
-                    )}
-                </div>
-
-                {/* Habits Grid */}
-                {loading ?(
-                    <LoadingSpinner/>
-                ):habits.length===0?( // Fixed comparison operator
-                    <EmptyState onCreateHabit={()=> setShowCreateForm(true)}/>
-                ):(
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {habits.map((habit)=>(
-                            <HabitCard
-                            key={habit.id}
-                            habit={habit}
-                            streak={streaks[habit.id] || 0}
-                            categoryColors={categoryColors}
-                            onComplete={()=>handleCompleteHabit(habit.id)}
-                            onDelete={()=>handleDeleteHabit(habit.id)}
-                            />
-                        ))}
-                    </div>
-                )}
-            </div>
-        </div>
+      })
     );
-};
+    setStreaks(Object.fromEntries(results));
+  }, [getToken]);
 
-//Habit Stats Component
-const HabitStats=({habits,streaks})=>{
-    const totalHabits=habits.length;
-    const completedToday=habits.filter(habit=>{
-        const today=new Date().toDateString();
-        return habit.last_completed && new Date(habit.last_completed).toDateString()===today; // Fixed missing ()
-    }).length;
-    const averageStreak=Object.values(streaks).length>0 ? Math.round(Object.values(streaks).reduce((a,b)=> a+b,0)/Object.values(streaks).length):0;
-    
-    return (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div className="bg-white rounded-xl p-6 shadow-md border border-gray-200">
-                <div className="text-3xl font-bold text-blue-600 mb-2">{totalHabits}</div>
-                <div className="text-gray-600">Active Habits</div>
-            </div>
-            <div className="bg-white rounded-xl p-6 shadow-md border border-gray-200">
-                <div className="text-3xl font-bold text-green-600 mb-2">{completedToday}</div>
-                <div className="text-gray-600">Completed Today</div>
-            </div>
-            <div className="bg-white rounded-xl p-6 shadow-md border border-gray-200">
-                <div className="text-3xl font-bold text-purple-600 mb-2">{averageStreak}</div>
-                <div className="text-gray-600">Average Streak</div>
-            </div>
-        </div>
-    );
-};
+  const loadHabits = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await api.habitsList(getToken);
+      const list = data?.habits || [];
+      setHabits(list);
+      loadStreaks(list);
+    } catch (e) {
+      console.error("Load habits failed:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [getToken, loadStreaks]);
 
-// Create Habit Form Component
-const CreateHabitForm = ({ templates, onHabitCreated, onCancel }) => {
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    category: 'general',
-    targetFrequency: 'daily'
-  });
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  useEffect(() => {
+    if (isLoaded && isSignedIn && user) loadHabits();
+  }, [isLoaded, isSignedIn, user, loadHabits]);
 
+  const todayStr = new Date().toDateString();
+  const completedToday = habits.filter((h) => {
+    const last = h.last_completed || h.lastCompleted;
+    return last && new Date(last).toDateString() === todayStr;
+  }).length;
+  const longestStreak = Object.values(streaks).reduce((m, v) => Math.max(m, v), 0);
 
-  const handleTemplateSelect = (template) => {
-    setSelectedTemplate(template);
-    setFormData({
-      title: template.title,
-      description: template.description,
-      category: template.category,
-      targetFrequency: 'daily'
-    });
-  };
+  const pickTemplate = (t) => setDraft({ title: t.title, description: t.desc, category: t.category, template: t, targetFrequency: "daily" });
 
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const response = await habitAPI.createHabit(formData);
-      if (response.success) {
-        onHabitCreated();
-        setFormData({ title: '', description: '', category: 'general', targetFrequency: 'daily' });
-        setSelectedTemplate(null);
-      }
-    } catch (error) {
-      console.error('Error creating habit:', error);
-    }
-  };
-
-
-  return (
-    <div className="bg-white rounded-xl p-6 shadow-md border border-gray-200 mb-6">
-      <h3 className="text-xl font-bold mb-4">Create New Habit</h3>
-      
-      {/* Habit Templates */}
-      <div className="mb-6">
-        <h4 className="font-semibold mb-3">Choose a template or create custom:</h4>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {templates.map((template, index) => (
-            <button
-              key={index}
-              onClick={() => handleTemplateSelect(template)}
-              className={`p-3 rounded-lg border-2 text-left transition-all ${
-                selectedTemplate === template
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="text-2xl mb-1">{template.icon}</div>
-              <div className="font-medium text-sm">{template.title}</div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-
-      {/* Custom Form */}
-      <form onSubmit={handleSubmit}>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div>
-            <label className="block text-sm font-medium mb-2">Habit Title</label>
-            <input
-              type="text"
-              value={formData.title}
-              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g., Morning Meditation"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Category</label>
-            <select
-              value={formData.category}
-              onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="mindfulness">Mindfulness</option>
-              <option value="health">Health</option>
-              <option value="reflection">Reflection</option>
-              <option value="movement">Movement</option>
-              <option value="learning">Learning</option>
-              <option value="wellness">Wellness</option>
-              <option value="general">General</option>
-            </select>
-          </div>
-        </div>
-        
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-2">Description</label>
-          <textarea
-            value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Describe your habit..."
-            rows="3"
-          />
-        </div>
-
-
-        <div className="flex gap-3">
-          <button
-            type="submit"
-            className="bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition-colors font-semibold"
-          >
-            Create Habit
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="bg-gray-500 text-white px-6 py-3 rounded-lg hover:bg-gray-600 transition-colors font-semibold"
-          >
-            Cancel
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-};
-
-// Habit Card Component
-const HabitCard = ({ habit, streak, categoryColors, onComplete, onDelete }) => {
-  const today = new Date().toDateString();
-  const isCompletedToday = habit.last_completed && 
-    new Date(habit.last_completed).toDateString() === today;
-
-  const getCategoryIcon = (category) => {
-    const icons = {
-      mindfulness: "🧘‍♂️",
-      health: "💧",
-      reflection: "📝",
-      movement: "🚶‍♂️",
-      learning: "📚",
-      wellness: "🌬️",
-      general: "⭐"
-    };
-    return icons[category] || "⭐";
+  const submitNew = async () => {
+    if (!draft.title.trim()) return;
+    try {
+      const r = await api.habitsCreate(
+        { title: draft.title.trim(), description: draft.description.trim(), category: draft.category, targetFrequency: draft.targetFrequency },
+        getToken
+      );
+      if (r?.success) {
+        setShowForm(false);
+        setDraft({ title: "", description: "", category: "mindfulness", template: null, targetFrequency: "daily" });
+        show("Habit added");
+        loadHabits();
+      }
+    } catch (e) {
+      console.error(e);
+      show("Failed to create habit", "error");
+    }
   };
 
+  const completeHabit = async (id) => {
+    try {
+      await api.habitsComplete(id, getToken);
+      loadHabits();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const removeHabit = async (id) => {
+    try {
+      await api.habitsDelete(id, getToken);
+      setHabits((prev) => prev.filter((h) => h.id !== id));
+      show("Habit removed");
+    } catch (e) {
+      console.error(e);
+      show("Failed to delete", "error");
+    } finally {
+      setConfirmId(null);
+    }
+  };
+
+  if (!isLoaded) {
+    return <div style={{ display: "flex", justifyContent: "center", padding: 80 }}><Spinner size={28} /></div>;
+  }
+
   return (
-    <div className={`bg-gradient-to-br ${categoryColors[habit.category] || categoryColors.general} rounded-xl p-6 shadow-md border-2 transition-all hover:shadow-lg`}>
-      <div className="flex justify-between items-start mb-4">
-        <div className="text-3xl">{getCategoryIcon(habit.category)}</div>
-        <button
-          onClick={onDelete}
-          className="text-red-500 hover:text-red-700 transition-colors"
-        >
-          ❌
-        </button>
-      </div>
-      
-      <h3 className="font-bold text-lg mb-2 text-gray-800">{habit.title}</h3>
-      <p className="text-gray-600 text-sm mb-4">{habit.description}</p>
-      
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-center">
-          <div className="text-2xl font-bold text-orange-600">{streak}</div>
-          <div className="text-xs text-gray-600">Day Streak</div>
-        </div>
-        <div className="text-center">
-          <div className="text-2xl font-bold text-purple-600">{habit.total_completions || 0}</div>
-          <div className="text-xs text-gray-600">Total</div>
-        </div>
+    <div className="container fade-in" style={{ padding: "40px 24px 64px", maxWidth: 1120 }}>
+      <PageHeader
+        icon="target"
+        title="Habit builder"
+        subtitle="Tiny rituals, repeated kindly — they're how change actually happens."
+        right={
+          !showForm && (
+            <button className="btn btn-primary" onClick={() => setShowForm(true)}>
+              <Icon name="plus" size={16} /> Add habit
+            </button>
+          )
+        }
+      />
+
+      <div className="grid-3" style={{ marginBottom: 28 }}>
+        <StatBlock icon="activity" accent="peach" value={habits.length} label="Active habits" />
+        <StatBlock icon="check-circle-2" accent="success" value={`${completedToday}/${habits.length || 0}`} label="Done today" />
+        <StatBlock icon="flame" accent="warning" value={longestStreak} label="Longest streak" />
       </div>
 
-      <button
-        onClick={onComplete}
-        disabled={isCompletedToday}
-        className={`w-full py-3 rounded-lg font-semibold transition-all ${
-          isCompletedToday
-            ? 'bg-green-500 text-white cursor-not-allowed'
-            : 'bg-white text-gray-800 hover:bg-gray-50 border-2 border-gray-300'
-        }`}
-      >
-        {isCompletedToday ? '✅ Completed Today!' : 'Mark Complete'}
-      </button>
+      {showForm && (
+        <div className="card slide-down" style={{ padding: 28, marginBottom: 28 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+            <h3>New habit</h3>
+            <button className="btn-icon" onClick={() => setShowForm(false)}><Icon name="x" size={18} /></button>
+          </div>
+
+          <p style={{ fontSize: 13, color: "var(--dawn-text-muted)", marginBottom: 12 }}>Start from a template</p>
+          <div className="grid-3" style={{ marginBottom: 24 }}>
+            {TEMPLATES.map((t) => {
+              const selected = draft.template?.title === t.title;
+              return (
+                <button
+                  key={t.title}
+                  onClick={() => pickTemplate(t)}
+                  className="card"
+                  style={{
+                    padding: 16, textAlign: "left",
+                    background: selected ? "var(--dawn-peach-subtle)" : "var(--dawn-surface)",
+                    border: `1.5px solid ${selected ? "var(--dawn-peach)" : "var(--dawn-peach-subtle)"}`,
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <div className="icon-bubble icon-bubble-sm" style={{ marginBottom: 10 }}>
+                    <Icon name={t.icon} size={14} />
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--dawn-text-primary)", marginBottom: 2 }}>{t.title}</div>
+                  <div style={{ fontSize: 12, color: "var(--dawn-text-muted)" }}>{t.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+            <div style={{ flex: "2 1 240px" }}>
+              <label className="field-label">Habit name</label>
+              <input
+                className="field"
+                value={draft.title}
+                onChange={(e) => setDraft({ ...draft, title: e.target.value, template: null })}
+                placeholder="e.g. Five minute stretch"
+              />
+            </div>
+            <div style={{ flex: "1 1 160px" }}>
+              <label className="field-label">Category</label>
+              <select
+                className="field"
+                value={draft.category}
+                onChange={(e) => setDraft({ ...draft, category: e.target.value })}
+              >
+                {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <label className="field-label">Description (optional)</label>
+          <textarea
+            className="field" rows={2}
+            value={draft.description}
+            onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+            placeholder="Why does this habit matter to you?"
+            style={{ marginBottom: 18 }}
+          />
+
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <button className="btn btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={submitNew} disabled={!draft.title.trim()}>
+              <Icon name="plus" size={16} /> Create habit
+            </button>
+          </div>
+        </div>
+      )}
+
+      <h2 style={{ marginBottom: 16 }}>Your habits</h2>
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 40 }}><Spinner size={24} /></div>
+      ) : habits.length === 0 ? (
+        <EmptyState
+          icon="target"
+          title="No habits yet"
+          subtitle="Start small. One habit, kept gently, becomes a foundation."
+          action={
+            <button className="btn btn-primary" onClick={() => setShowForm(true)}>
+              <Icon name="plus" size={16} /> Create your first habit
+            </button>
+          }
+        />
+      ) : (
+        <div className="grid-2">
+          {habits.map((h) => {
+            const cat = CATEGORIES.find((c) => c.id === h.category) || CATEGORIES[CATEGORIES.length - 1];
+            const last = h.last_completed || h.lastCompleted;
+            const doneToday = last && new Date(last).toDateString() === todayStr;
+            const streak = streaks[h.id] ?? 0;
+            const total = h.total_completions ?? h.totalCompletions ?? 0;
+            return (
+              <div key={h.id} className="card card-hover" style={{ padding: 22 }}>
+                <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                  <div
+                    className="icon-bubble"
+                    style={{
+                      background: doneToday ? "var(--dawn-success-bg)" : "var(--dawn-peach-subtle)",
+                      color: doneToday ? "var(--dawn-success)" : "var(--dawn-peach)",
+                    }}
+                  >
+                    <Icon name={cat.icon} size={20} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                      <h3 style={{ marginBottom: 4 }}>{h.title}</h3>
+                      <button className="btn-icon btn-icon-danger" onClick={() => setConfirmId(h.id)} title="Delete">
+                        <Icon name="trash-2" size={15} />
+                      </button>
+                    </div>
+                    {h.description && (
+                      <p style={{ fontSize: 13, color: "var(--dawn-text-muted)", marginBottom: 12 }}>{h.description}</p>
+                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 13, color: "var(--dawn-text-muted)", marginBottom: 14, flexWrap: "wrap" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                        <Icon name="flame" size={14} color="var(--dawn-warning)" />
+                        {streak} day streak
+                      </span>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                        <Icon name="check" size={14} color="var(--dawn-success)" />
+                        {total} total
+                      </span>
+                      <span className="pill" style={{ background: "var(--dawn-surface-alt)", color: "var(--dawn-text-muted)", fontSize: 11 }}>
+                        <Icon name={cat.icon} size={11} /> {cat.label}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => !doneToday && completeHabit(h.id)}
+                      disabled={doneToday}
+                      className="btn"
+                      style={
+                        doneToday
+                          ? { background: "var(--dawn-success-bg)", color: "var(--dawn-success)", width: "100%" }
+                          : { width: "100%", background: "var(--dawn-peach)", color: "#fff" }
+                      }
+                    >
+                      <Icon name={doneToday ? "check-check" : "circle"} size={16} />
+                      {doneToday ? "Completed today" : "Mark complete"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <ConfirmModal
+        open={confirmId !== null}
+        title="Remove habit?"
+        message="This habit and its streak will be gone. You can always start a new one."
+        onConfirm={() => removeHabit(confirmId)}
+        onCancel={() => setConfirmId(null)}
+      />
+      {toastNode}
     </div>
   );
 };
-
-// Empty State Component
-const EmptyState = ({ onCreateHabit }) => (
-  <div className="text-center py-12">
-    <div className="text-6xl mb-4">🎯</div>
-    <h3 className="text-xl font-bold mb-2">No habits yet!</h3>
-    <p className="text-gray-600 mb-6">Start building positive habits to improve your mental wellness.</p>
-    <button
-      onClick={onCreateHabit}
-      className="bg-blue-500 text-white px-8 py-4 rounded-lg hover:bg-blue-600 transition-colors font-semibold"
-    >
-      Create Your First Habit
-    </button>
-  </div>
-);
-
-// Loading Spinner Component
-const LoadingSpinner = () => (
-  <div className="flex justify-center items-center py-12">
-    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-    <span className="ml-4 text-gray-600">Loading your habits...</span>
-  </div>
-);
 
 export default HabitBuilder;

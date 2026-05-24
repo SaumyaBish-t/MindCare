@@ -61,12 +61,10 @@ router.delete('/:id',authenticateApi, async (req, res) => {
     const {userId} = getAuth(req);
     const { id } = req.params;
     
-    await prisma.sentimentAnalysis.delete({
-      where: { 
-        id: parseInt(id),
-        userId:userId
-       },
-      
+    // SentimentAnalysis.id is a cuid String, not Int.
+    // Use deleteMany so the composite (id+userId) ownership check is the gate.
+    await prisma.sentimentAnalysis.deleteMany({
+      where: { id, userId },
     });
 
     res.status(200).json({ success: true, message: 'Analysis deleted' });

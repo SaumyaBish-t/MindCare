@@ -1,326 +1,321 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { analyzeSentiment } from '../api/sentiment';
-import { useAuth } from '@clerk/clerk-react';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAuth } from "@clerk/clerk-react";
+import {
+  ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip,
+} from "recharts";
+import { Icon } from "../lib/icon.jsx";
+import { api } from "../lib/api.js";
+import { PageHeader, EmptyState, Spinner, ConfirmModal, useToast } from "../components/ui-common.jsx";
+
+// Map a raw Hugging-Face / Gradio result into a friendly { sentiment, color, confidence, description }.
+function interpret(rawResult) {
+  // Gradio returns whatever the Space returns. Common shapes:
+  //   [{ label: "Positive", score: 0.84 }, ...]
+  //   { label: "...", score: 0.x }
+  //   string
+  let label = "Neutral";
+  let confidence = 0.6;
+  try {
+    const r = Array.isArray(rawResult) ? rawResult[0] : rawResult;
+    if (r) {
+      if (typeof r === "string") {
+        label = r;
+      } else if (r.emotionalState?.description) {
+        label = r.emotionalState.description;
+        confidence = r.emotionalState.confidence ?? 0.7;
+      } else if (r.label) {
+        label = r.label;
+        confidence = r.score ?? r.confidence ?? 0.7;
+      }
+    }
+  } catch { /* noop */ }
+
+  const lower = String(label).toLowerCase();
+  if (/(positive|happy|joy|calm|grateful|content|hopeful)/.test(lower)) {
+    return { sentiment: "Positive", color: "success", confidence,
+      description: "You sound like you're in a really kind place right now. Notice what's helping — and try to give yourself credit for it." };
+  }
+  if (/(negative|sad|anxious|angry|frustrat|stress|depress|heavy|down|worried|tired|overwhelm)/.test(lower)) {
+    return { sentiment: "Heavy", color: "danger", confidence,
+      description: "There's some weight in what you wrote, and that's okay. Be gentle with yourself today — even small care counts." };
+  }
+  return { sentiment: "Neutral", color: "warning", confidence,
+    description: "Things feel steady — not heavy, not bright. That's its own kind of okay." };
+}
+
+const ACCENT_VAR = { success: "--dawn-success", danger: "--dawn-danger", warning: "--dawn-warning" };
 
 const SentimentalAnalysis = () => {
   const { getToken } = useAuth();
-
-  // input + ui state
-  const [inputText, setInputText] = useState("");
-  const [result, setResult] = useState(null);
+  const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  // history state
+  const [result, setResult] = useState(null);
+  const [showDetails, setShowDetails] = useState(false);
   const [history, setHistory] = useState([]);
-  const [expandedItems, setExpandedItems] = useState({});
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [confirmId, setConfirmId] = useState(null);
+  const [error, setError] = useState(null);
+  const { show, node: toastNode } = useToast();
 
-  // nice accessible color tokens (kept as classes, defined inline via tailwind)
-  // load history from backend
   const fetchHistory = useCallback(async () => {
     try {
-      const token = await getToken();
-      const response = await fetch('http://localhost:3001/api/sentiment/history', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setHistory(data.analyses || []);
-      } else {
-        console.error("Failed to fetch history");
-      }
-    } catch (err) {
-      console.error("Error fetching history:", err);
+      const data = await api.sentimentHistory(getToken);
+      setHistory(data?.analyses || []);
+    } catch (e) {
+      console.error("History load failed:", e);
+    } finally {
+      setHistoryLoading(false);
     }
   }, [getToken]);
 
-  useEffect(() => {
-    fetchHistory();
-  }, [fetchHistory]);
+  useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
-  // format date for history cards
-  const formatDate = (dateString) => {
-    if (!dateString) return '';
-    return new Date(dateString).toLocaleString('en-IN', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  // save analysis to backend
-  const saveAnalysis = async (inputTextVal, resultVal, description) => {
-    try {
-      const token = await getToken();
-      const response = await fetch('http://localhost:3001/api/sentiment/save', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          inputText: inputTextVal,
-          result: resultVal,
-          description: description,
-        }),
-      });
-      if (response.ok) {
-        await response.json();
-        await fetchHistory();
-      } else {
-        const errorData = await response.json();
-        console.error('Failed to save analysis:', errorData.error);
-        setError('Failed to save analysis');
-      }
-    } catch (err) {
-      console.error('Error saving analysis:', err);
-      setError('Error saving analysis');
-    }
-  };
-
-  // analyze handler
-  const handleAnalyze = async () => {
+  const analyze = async () => {
     setError(null);
-    if (!inputText.trim()) {
-      setError('Please enter some text to analyze.');
-      return;
-    }
-
+    if (!text.trim()) return;
     setLoading(true);
     setResult(null);
-
     try {
-      const response = await analyzeSentiment(inputText);
-      if (response.success) {
-        setResult(response.data);
-
-        // try to extract description for saving
-        const description = response.data?.[0]?.emotionalState?.description || "No description available";
-        await saveAnalysis(inputText, response.data, description);
-
-      } else {
-        setError(response.error || 'Analysis failed');
+      const data = await api.sentimentAnalyze(text, getToken);
+      if (!data?.success) throw new Error(data?.error || "Analysis failed");
+      const interpreted = interpret(data.data);
+      const enriched = { ...interpreted, raw: data.data, text, ts: Date.now() };
+      setResult(enriched);
+      // auto-save
+      try {
+        await api.sentimentSave(
+          { inputText: text, result: data.data, description: interpreted.description },
+          getToken
+        );
+        fetchHistory();
+      } catch (saveErr) {
+        console.warn("Auto-save failed:", saveErr);
       }
     } catch (err) {
-      console.error(err);
-      setError(err.message || 'Unexpected error');
+      setError(err.message || "Unexpected error");
     } finally {
       setLoading(false);
     }
   };
 
-  // delete analysis
-  const deleteAnalysis = async (id) => {
+  const dismiss = () => { setResult(null); setShowDetails(false); };
+
+  const deleteEntry = async (id) => {
     try {
-      const token = await getToken();
-      const response = await fetch(`http://localhost:3001/api/sentiment/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      if (response.ok) {
-        await fetchHistory();
-      } else {
-        const err = await response.json();
-        console.error("Failed to delete analysis:", err.error);
-      }
-    } catch (err) {
-      console.error("Error deleting analysis:", err);
+      await api.sentimentDelete(id, getToken);
+      setHistory((prev) => prev.filter((e) => e.id !== id));
+      show("Entry removed");
+    } catch (e) {
+      console.error(e);
+      show("Failed to delete", "error");
+    } finally {
+      setConfirmId(null);
     }
   };
 
-  const toggleHistoryItem = (id) => {
-    setExpandedItems(prev => ({ ...prev, [id]: !prev[id] }));
-  };
+  // Chart data — last 14 entries
+  const chartData = useMemo(
+    () =>
+      [...history]
+        .slice(0, 14)
+        .reverse()
+        .map((e) => {
+          const interp = interpret(e.result);
+          return {
+            label: new Date(e.createdAt).toLocaleDateString("en", { month: "short", day: "numeric" }),
+            score: interp.sentiment === "Positive" ? 3 : interp.sentiment === "Neutral" ? 2 : 1,
+            sentiment: interp.sentiment,
+          };
+        }),
+    [history]
+  );
 
-  // derive simple description for current result (UI)
-  const currentDescription = result && result.length > 0 && result[0]?.emotionalState
-    ? result[0].emotionalState.description
-    : null;
-
-  // small helper to render sentiment badge
-  const SentimentBadge = ({ label }) => {
-    if (!label) return null;
-    const lower = label.toLowerCase();
-    if (lower.includes('positive') || lower.includes('happy') || lower.includes('joy') || lower.includes('calm')) {
-      return <span className="inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full bg-emerald-50 text-emerald-600">Positive</span>;
-    }
-    if (lower.includes('neutral') || lower.includes('mixed')) {
-      return <span className="inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full bg-amber-50 text-amber-600">Neutral</span>;
-    }
-    // otherwise negative/sad/anxious
-    return <span className="inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full bg-red-50 text-red-600">Negative</span>;
-  };
+  const counts = useMemo(() => {
+    const c = { Positive: 0, Neutral: 0, Heavy: 0 };
+    history.forEach((e) => { c[interpret(e.result).sentiment] += 1; });
+    return c;
+  }, [history]);
 
   return (
-    <div className="bg-[#FFF7E0] min-h-screen text-[#0F172A]">
-      <div className="max-w-5xl mx-auto px-4 py-12">
+    <div className="container-md fade-in" style={{ padding: "40px 24px 64px" }}>
+      <PageHeader
+        icon="bar-chart-3"
+        title="Mood insights"
+        subtitle="Understand how you're feeling — type freely and we'll give you a gentle read."
+      />
 
-        {/* Header */}
-        <h1 className="text-4xl font-semibold text-[#2DD4BF] text-center mb-2">Mood Tracker</h1>
-        <p className="text-center text-[#6B7280] mb-8">Analyze how you're feeling today — type freely and we'll give you a gentle read.</p>
-
-        {/* Input */}
-        <div className="max-w-xl mx-auto">
-          <textarea
-            className="w-full rounded-lg border border-[#E6E9EE] bg-white px-4 py-3 text-[#0F172A] placeholder:text-[#9AA4B2] focus:outline-none focus:ring-2 focus:ring-[#06B6D4]"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            placeholder="Enter how you're feeling (e.g., 'I couldn't sleep last night, feeling stressed')"
-            rows={5}
-            disabled={loading}
-          />
-
-          <div className="mt-4 flex gap-3">
-            <button
-              onClick={handleAnalyze}
-              disabled={loading}
-              className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full text-white font-medium transition ${loading ? 'bg-[#0CB4B1] opacity-80 animate-pulse' : 'bg-[#06B6D4] hover:shadow-md'}`}
-            >
-              {loading ? 'Analyzing...' : 'Analyze Sentiment'}
-            </button>
-
-            <button
-              onClick={() => { setInputText(''); setResult(null); setError(null); }}
-              className="px-4 py-2 rounded-full bg-white border border-[#E6E9EE] text-[#0F172A] shadow-sm"
-            >
+      {/* Input */}
+      <div className="card" style={{ padding: 24, marginBottom: 24 }}>
+        <textarea
+          className="field"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="How are you feeling right now? Write anything that comes to mind — no need to be polished."
+          rows={4}
+          style={{ marginBottom: 14 }}
+        />
+        <div style={{ display: "flex", gap: 10, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: "var(--dawn-text-muted)" }}>{text.length} characters · stays private</span>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button className="btn btn-ghost" onClick={() => { setText(""); setResult(null); setError(null); }} disabled={!text}>
               Clear
             </button>
+            <button className="btn btn-primary" onClick={analyze} disabled={!text.trim() || loading}>
+              {loading ? (<><Spinner size={14} light /> Analyzing…</>) : (<><Icon name="activity" size={16} /> Analyze</>)}
+            </button>
           </div>
-
-          {error && (
-            <div className="mt-4 text-sm text-red-600 bg-red-50 p-3 rounded-md">
-              {typeof error === 'string' ? error : 'An error occurred'}
-            </div>
-          )}
         </div>
-
-        {/* Result panel */}
-        {result && (
-          <div className="mt-8 max-w-2xl mx-auto bg-white border border-[#E6E9EE] rounded-xl p-6 shadow-[0_6px_24px_rgba(15,23,42,0.06)]">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <SentimentBadge label={currentDescription} />
-                  <span className="text-sm text-[#6B7280] px-3 py-1 bg-[#F8FAFB] rounded-full">{new Date().toLocaleString()}</span>
-                </div>
-
-                <p className="text-sm font-medium text-[#0F172A] mb-1">Analysis Result</p>
-                <div className="text-lg text-[#0F172A] font-semibold">{currentDescription || 'Unable to determine mood'}</div>
-              </div>
-
-              <div className="text-right">
-                <button
-                  onClick={() => setResult(null)}
-                  className="text-sm text-[#06B6D4] hover:underline"
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
-
-            {/* optional full JSON */}
-            <div className="mt-4">
-              <button
-                onClick={() => setExpandedItems(prev => ({ ...prev, temp: !prev.temp }))}
-                className="text-sm text-[#06B6D4] hover:underline"
-              >
-                {expandedItems.temp ? 'Hide Details' : 'More Details'}
-              </button>
-
-              {expandedItems.temp && (
-                <div className="bg-[#F8FAFB] p-3 rounded-lg mt-3 text-sm text-[#374151]">
-                  <pre className="whitespace-pre-wrap text-xs">{JSON.stringify(result, null, 2)}</pre>
-                </div>
-              )}
-            </div>
+        {error && (
+          <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: "var(--dawn-danger-bg)", color: "var(--dawn-danger)", fontSize: 13 }}>
+            {error}
           </div>
         )}
-
-        {/* History */}
-        <div className="mt-10 mx-2 pb-12">
-          <h2 className="text-3xl font-bold text-center mb-6 text-green-600">Analysis History</h2>
-
-          {history.length === 0 ? (
-            <div className="text-center bg-white rounded-lg shadow-md p-8 mx-auto max-w-md">
-              <div className="text-gray-500 text-6xl mb-4">📊</div>
-              <p className="text-gray-600 text-lg">No previous analyses found.</p>
-              <p className="text-gray-400 text-sm mt-2">Your analysis will appear here after you run one.</p>
-            </div>
-          ) : (
-            <div className="max-w-4xl mx-auto space-y-6">
-              {history.map((analysis) => (
-                <div key={analysis.id} className="bg-white rounded-lg shadow-md p-6 border border-[#E6E9EE] hover:shadow-lg transition-shadow duration-300">
-                  <div className="flex justify-between items-start gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-3">
-                        {/* tiny status dot using sentiment */}
-                        <span className={`w-3 h-3 rounded-full ${analysis.description?.toLowerCase().includes('sad') || analysis.description?.toLowerCase().includes('angry') ? 'bg-red-500' : analysis.description?.toLowerCase().includes('neutral') ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-
-                        <span className="text-sm text-[#6B7280] bg-[#F8FAFB] px-3 py-1 rounded-full">
-                          {formatDate(analysis.createdAt)}
-                        </span>
-                      </div>
-
-                      <div className="mb-3">
-                        <p className="text-gray-800 font-medium mb-1">Input Text:</p>
-                        <p className="text-gray-700 bg-[#F8FAFB] p-3 rounded-lg italic">
-                          "{analysis.inputText.length > 150 ? analysis.inputText.substring(0, 150) + "..." : analysis.inputText}"
-                        </p>
-                      </div>
-
-                      {analysis.description && (
-                        <div className="mb-3">
-                          <p className="text-gray-800 font-medium mb-1">Analysis Description:</p>
-                          <p className="text-sm text-gray-600 bg-[#F1F8F7] p-3 rounded-lg">
-                            {analysis.description}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex flex-col items-end gap-3">
-                      <button
-                        className="text-blue-600 hover:underline text-sm"
-                        onClick={() => toggleHistoryItem(analysis.id)}
-                      >
-                        {expandedItems[analysis.id] ? 'Hide Details' : 'More Details'}
-                      </button>
-
-                      <button
-                        onClick={() => deleteAnalysis(analysis.id)}
-                        className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors duration-200 font-medium shadow-sm"
-                        title="Delete this analysis"
-                      >
-                        🗑️ Delete
-                      </button>
-                    </div>
-                  </div>
-
-                  {expandedItems[analysis.id] && (
-                    <div className="bg-gray-50 rounded p-4 overflow-auto max-h-64 mt-4">
-                      <pre className="text-xs text-gray-800 whitespace-pre-wrap">{JSON.stringify(analysis.result, null, 2)}</pre>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* total count */}
-          {history.length > 0 && (
-            <div className="text-center mt-6">
-              <p className="text-gray-600 bg-white rounded-full px-4 py-2 inline-block shadow-sm">
-                Total Analyses: <span className="font-bold text-green-600">{history.length}</span>
-              </p>
-            </div>
-          )}
-        </div>
       </div>
+
+      {/* Result */}
+      {result && (
+        <div
+          className="card fade-in"
+          style={{ padding: 24, marginBottom: 24, borderLeft: `3px solid var(${ACCENT_VAR[result.color]})` }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+            <span className={`pill pill-${result.color}`}>
+              <Icon name={result.color === "success" ? "smile" : result.color === "danger" ? "cloud-rain" : "minus"} size={13} />
+              {result.sentiment} · {Math.round((result.confidence || 0.7) * 100)}% confidence
+            </span>
+            <span style={{ fontSize: 12, color: "var(--dawn-text-muted)" }}>
+              {new Date(result.ts).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+            </span>
+          </div>
+          <p style={{ color: "var(--dawn-text-primary)", lineHeight: 1.6, marginBottom: 16 }}>{result.description}</p>
+
+          <button
+            onClick={() => setShowDetails((v) => !v)}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--dawn-text-muted)", padding: "6px 0" }}
+          >
+            View details <Icon name={showDetails ? "chevron-up" : "chevron-down"} size={14} />
+          </button>
+
+          {showDetails && (
+            <div
+              style={{
+                marginTop: 12, padding: 14,
+                background: "var(--dawn-surface-alt)", borderRadius: 10,
+                fontFamily: "ui-monospace, monospace",
+                fontSize: 12, lineHeight: 1.7, color: "var(--dawn-text-secondary)",
+                whiteSpace: "pre-wrap", maxHeight: 240, overflow: "auto",
+              }}
+            >
+              {JSON.stringify(result.raw, null, 2)}
+            </div>
+          )}
+
+          <div style={{ marginTop: 18, display: "flex", gap: 10 }}>
+            <button className="btn btn-ghost" onClick={dismiss}>
+              <Icon name="x" size={16} /> Dismiss
+            </button>
+            <span style={{ fontSize: 12, color: "var(--dawn-text-muted)", alignSelf: "center" }}>
+              <Icon name="bookmark-check" size={12} /> Auto-saved to your history
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Chart */}
+      {chartData.length > 1 && (
+        <div className="card" style={{ padding: 24, marginBottom: 24 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+            <h3>Mood over time</h3>
+            <span style={{ fontSize: 12, color: "var(--dawn-text-muted)" }}>Last {chartData.length} entries</span>
+          </div>
+          <div style={{ height: 200, width: "100%" }}>
+            <ResponsiveContainer>
+              <LineChart data={chartData} margin={{ top: 10, right: 12, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(212,129,107,0.12)" />
+                <XAxis dataKey="label" axisLine={false} tickLine={false} />
+                <YAxis
+                  domain={[0, 4]}
+                  ticks={[1, 2, 3]}
+                  tickFormatter={(v) => ({ 1: "Heavy", 2: "Neutral", 3: "Positive" }[v] || "")}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  contentStyle={{ background: "var(--dawn-surface)", border: "1px solid var(--dawn-peach-subtle)", borderRadius: 10, fontSize: 13 }}
+                  labelStyle={{ color: "var(--dawn-text-muted)" }}
+                />
+                <Line
+                  type="monotone" dataKey="score"
+                  stroke="var(--dawn-peach)" strokeWidth={2.5}
+                  dot={{ fill: "var(--dawn-peach)", r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <div style={{ display: "flex", gap: 12, marginTop: 14, fontSize: 13, color: "var(--dawn-text-muted)" }}>
+            <span><span className="pill pill-success" style={{ padding: "2px 8px" }}>{counts.Positive}</span> positive</span>
+            <span><span className="pill pill-warning" style={{ padding: "2px 8px" }}>{counts.Neutral}</span> neutral</span>
+            <span><span className="pill pill-danger"  style={{ padding: "2px 8px" }}>{counts.Heavy}</span> heavy</span>
+          </div>
+        </div>
+      )}
+
+      {/* History */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <h2>Past entries</h2>
+        <span style={{ fontSize: 13, color: "var(--dawn-text-muted)" }}>
+          {history.length} {history.length === 1 ? "entry" : "entries"}
+        </span>
+      </div>
+
+      {historyLoading ? (
+        <div style={{ textAlign: "center", padding: 40 }}><Spinner size={24} /></div>
+      ) : history.length === 0 ? (
+        <EmptyState
+          icon="bar-chart-3"
+          title="No entries yet"
+          subtitle="Once you analyze a thought, it'll appear here so you can spot patterns over time."
+        />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {history.map((e) => {
+            const interp = interpret(e.result);
+            return (
+              <div
+                key={e.id}
+                className="card"
+                style={{ padding: 20, borderLeft: `3px solid var(${ACCENT_VAR[interp.color]})` }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+                  <span style={{ fontSize: 12, color: "var(--dawn-text-muted)" }}>
+                    {new Date(e.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+                  </span>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <span className={`pill pill-${interp.color}`}>{interp.sentiment}</span>
+                    <button className="btn-icon btn-icon-danger" onClick={() => setConfirmId(e.id)} title="Delete">
+                      <Icon name="trash-2" size={16} />
+                    </button>
+                  </div>
+                </div>
+                <p style={{ color: "var(--dawn-text-primary)", marginBottom: 8, fontSize: 14.5 }}>{e.inputText}</p>
+                {e.description && (
+                  <p style={{ fontSize: 13, color: "var(--dawn-text-muted)", fontStyle: "italic" }}>{e.description}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <ConfirmModal
+        open={confirmId !== null}
+        title="Remove this entry?"
+        message="This will permanently delete this mood entry. Your past analysis won't be recoverable."
+        onConfirm={() => deleteEntry(confirmId)}
+        onCancel={() => setConfirmId(null)}
+      />
+      {toastNode}
     </div>
   );
 };
