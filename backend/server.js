@@ -14,8 +14,18 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // CORS with credentials for your Vite dev server
+// Allow Vite on 5173 / 5174 / 5175 plus an env-overridable list.
+// Vite hops to the next free port if the default is busy, so we don't
+// hard-code one — anything on localhost (any port) is accepted in dev.
+const EXTRA_ORIGINS = (process.env.CORS_ORIGINS || '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true); // curl, server-to-server
+    if (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) return cb(null, true);
+    if (EXTRA_ORIGINS.includes(origin)) return cb(null, true);
+    return cb(new Error(`CORS: origin ${origin} not allowed`));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
