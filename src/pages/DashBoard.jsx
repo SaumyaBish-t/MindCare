@@ -79,22 +79,20 @@ const Dashboard = () => {
     let alive = true;
     (async () => {
       try {
-        const [h, m, g] = await Promise.allSettled([
+        const [h, m, g, s] = await Promise.allSettled([
           api.habitsList(getToken),
           api.sentimentHistory(getToken),
           api.gratitudeList(getToken),
+          api.sleepList(getToken),
         ]);
         if (!alive) return;
         if (h.status === "fulfilled") setHabits(h.value?.habits || []);
         if (m.status === "fulfilled") setMoods(m.value?.analyses || []);
         if (g.status === "fulfilled") setJournal(g.value?.entries || []);
+        if (s.status === "fulfilled") setSleep(s.value?.entries || []);
       } catch (e) {
         console.error("Dashboard load failed:", e);
       }
-      try {
-        const raw = JSON.parse(localStorage.getItem("mindcare:sleep") || "[]");
-        if (alive) setSleep(raw);
-      } catch { /* noop */ }
     })();
     return () => { alive = false; };
   }, [getToken]);

@@ -211,10 +211,28 @@ const Resources = () => {
         <p style={{ fontSize: 14, color: "var(--dawn-text-secondary)", marginBottom: 18 }}>
           If you're in crisis or having thoughts of harm, please reach out — help is available, free, and confidential.
         </p>
-        <div className="grid-2">
-          <CrisisCard icon="phone" title="988 Suicide & Crisis Lifeline" number="988" sub="Call or text · 24/7 · USA" href="tel:988" />
-          <CrisisCard icon="ambulance" title="Emergency services" number="911" sub="Immediate help · 24/7 · USA" href="tel:911" />
+
+        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--dawn-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>
+          🇮🇳 India
         </div>
+        <div className="grid-2" style={{ marginBottom: 18 }}>
+          <CrisisCard icon="phone" title="Tele MANAS (Govt. of India)" number="14416" sub="Call · 24/7 · 20+ languages" href="tel:14416" />
+          <CrisisCard icon="phone" title="iCall (TISS)" number="9152987821" sub="Mon-Sat 8am-10pm · English, Hindi, Marathi" href="tel:+919152987821" />
+          <CrisisCard icon="phone" title="Vandrevala Foundation" number="9999666555" sub="Call or WhatsApp · 24/7" href="tel:+919999666555" />
+          <CrisisCard icon="phone" title="AASRA" number="9820466726" sub="Call · 24/7 · Suicide prevention" href="tel:+919820466726" />
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--dawn-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>
+          🇺🇸 United States
+        </div>
+        <div className="grid-2">
+          <CrisisCard icon="phone" title="988 Suicide & Crisis Lifeline" number="988" sub="Call or text · 24/7" href="tel:988" />
+          <CrisisCard icon="ambulance" title="Emergency services" number="911" sub="Immediate help · 24/7" href="tel:911" />
+        </div>
+
+        <p style={{ fontSize: 12, color: "var(--dawn-text-muted)", marginTop: 16 }}>
+          For other regions, search for your country's official mental-health helpline — most have free 24/7 lines.
+        </p>
       </div>
 
       {/* Categories */}

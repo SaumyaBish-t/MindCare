@@ -7,20 +7,33 @@ import { Icon } from "../lib/icon.jsx";
 import { api } from "../lib/api.js";
 import { PageHeader, EmptyState, Spinner, ConfirmModal, useToast } from "../components/ui-common.jsx";
 
-// Map a raw Hugging-Face / Gradio result into a friendly { sentiment, color, confidence, description }.
+// The backend (OpenRouter) returns a structured object:
+//   { sentiment, confidence, primary_emotion, secondary_emotions, description, body_hint, gentle_suggestion }
+// Older Gradio entries used different shapes — we fall back gracefully.
 function interpret(rawResult) {
-  // Gradio returns whatever the Space returns. Common shapes:
-  //   [{ label: "Positive", score: 0.84 }, ...]
-  //   { label: "...", score: 0.x }
-  //   string
+  const r = Array.isArray(rawResult) ? rawResult[0] : rawResult;
+
+  // New shape (OpenRouter)
+  if (r && typeof r === "object" && r.sentiment && ["Positive", "Neutral", "Heavy"].includes(r.sentiment)) {
+    return {
+      sentiment: r.sentiment,
+      color: r.sentiment === "Positive" ? "success" : r.sentiment === "Heavy" ? "danger" : "warning",
+      confidence: typeof r.confidence === "number" ? r.confidence : 0.7,
+      description: r.description || "",
+      primaryEmotion: r.primary_emotion || "",
+      secondaryEmotions: Array.isArray(r.secondary_emotions) ? r.secondary_emotions : [],
+      bodyHint: r.body_hint || "",
+      suggestion: r.gentle_suggestion || "",
+    };
+  }
+
+  // Legacy fallback for historical Gradio entries
   let label = "Neutral";
   let confidence = 0.6;
   try {
-    const r = Array.isArray(rawResult) ? rawResult[0] : rawResult;
     if (r) {
-      if (typeof r === "string") {
-        label = r;
-      } else if (r.emotionalState?.description) {
+      if (typeof r === "string") label = r;
+      else if (r.emotionalState?.description) {
         label = r.emotionalState.description;
         confidence = r.emotionalState.confidence ?? 0.7;
       } else if (r.label) {
@@ -33,14 +46,17 @@ function interpret(rawResult) {
   const lower = String(label).toLowerCase();
   if (/(positive|happy|joy|calm|grateful|content|hopeful)/.test(lower)) {
     return { sentiment: "Positive", color: "success", confidence,
-      description: "You sound like you're in a really kind place right now. Notice what's helping — and try to give yourself credit for it." };
+      description: "You sound like you're in a really kind place right now. Notice what's helping — and try to give yourself credit for it.",
+      primaryEmotion: "", secondaryEmotions: [], bodyHint: "", suggestion: "" };
   }
   if (/(negative|sad|anxious|angry|frustrat|stress|depress|heavy|down|worried|tired|overwhelm)/.test(lower)) {
     return { sentiment: "Heavy", color: "danger", confidence,
-      description: "There's some weight in what you wrote, and that's okay. Be gentle with yourself today — even small care counts." };
+      description: "There's some weight in what you wrote, and that's okay. Be gentle with yourself today — even small care counts.",
+      primaryEmotion: "", secondaryEmotions: [], bodyHint: "", suggestion: "" };
   }
   return { sentiment: "Neutral", color: "warning", confidence,
-    description: "Things feel steady — not heavy, not bright. That's its own kind of okay." };
+    description: "Things feel steady — not heavy, not bright. That's its own kind of okay.",
+    primaryEmotion: "", secondaryEmotions: [], bodyHint: "", suggestion: "" };
 }
 
 const ACCENT_VAR = { success: "--dawn-success", danger: "--dawn-danger", warning: "--dawn-warning" };
@@ -187,7 +203,41 @@ const SentimentalAnalysis = () => {
               {new Date(result.ts).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
             </span>
           </div>
-          <p style={{ color: "var(--dawn-text-primary)", lineHeight: 1.6, marginBottom: 16 }}>{result.description}</p>
+          <p style={{ color: "var(--dawn-text-primary)", lineHeight: 1.6, marginBottom: 12 }}>{result.description}</p>
+
+          {(result.primaryEmotion || result.secondaryEmotions?.length) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+              {result.primaryEmotion && (
+                <span className="pill pill-peach">
+                  <Icon name="circle-dot" size={12} /> {result.primaryEmotion}
+                </span>
+              )}
+              {result.secondaryEmotions?.map((e) => (
+                <span key={e} className="pill" style={{ background: "var(--dawn-surface-alt)", color: "var(--dawn-text-muted)" }}>
+                  {e}
+                </span>
+              ))}
+            </div>
+          )}
+          {result.bodyHint && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 14, color: "var(--dawn-text-secondary)" }}>
+              <Icon name="heart-pulse" size={14} color="var(--dawn-peach)" />
+              <span style={{ fontStyle: "italic" }}>{result.bodyHint}</span>
+            </div>
+          )}
+          {result.suggestion && (
+            <div
+              style={{
+                marginTop: 4, marginBottom: 12, padding: "10px 14px",
+                background: "var(--dawn-peach-subtle)", borderRadius: 10,
+                color: "var(--dawn-text-secondary)", fontSize: 14,
+                display: "flex", gap: 10, alignItems: "flex-start",
+              }}
+            >
+              <Icon name="sparkles" size={14} color="var(--dawn-peach)" />
+              <span>{result.suggestion}</span>
+            </div>
+          )}
 
           <button
             onClick={() => setShowDetails((v) => !v)}

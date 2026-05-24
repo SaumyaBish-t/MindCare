@@ -11,8 +11,7 @@
     "@clerk/clerk-sdk-node": "^5.1.6",
     "@clerk/express": "^1.7.10",
     "@getbrevo/brevo": "^3.0.1",
-    "@gradio/client": "^1.15.6",
-    "@prisma/client": "^5.22.0",
+    "@prisma/client": "^6.19.3",
     "@prisma/extension-accelerate": "^2.0.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
@@ -21,6 +20,6 @@
     "pg": "^8.16.3"
   },
   "devDependencies": {
-    "prisma": "^5.22.0"
+    "prisma": "^6.19.3"
   }
 }

@@ -66,6 +66,13 @@ export const api = {
     request("/api/gratitude", { method: "POST", body: { content }, getToken }),
   gratitudeDelete: (id, getToken) =>
     request(`/api/gratitude/${id}`, { method: "DELETE", getToken }),
+
+  // -------- Sleep --------
+  sleepList: (getToken) => request("/api/sleep", { getToken }),
+  sleepCreate: (payload, getToken) =>
+    request("/api/sleep", { method: "POST", body: payload, getToken }),
+  sleepDelete: (id, getToken) =>
+    request(`/api/sleep/${id}`, { method: "DELETE", getToken }),
 };
 
 export { API_BASE };

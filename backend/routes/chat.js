@@ -55,6 +55,79 @@ const crisisResponse = () => ({
     "If you'd like, you can tell me more about what's been happening today, and I'll listen.",
 });
 
+// Pull recent context (last few moods + habits done today) so Buddy can
+// reflect back what's been going on without the user having to repeat it.
+// Best-effort — any failure here is swallowed and chat continues without context.
+async function buildUserContext(userId) {
+  if (!userId) return "";
+  try {
+    const [moods, habits, sleep] = await Promise.all([
+      prisma.sentimentAnalysis.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: { result: true, description: true, createdAt: true },
+      }),
+      prisma.habit.findMany({
+        where: { userId, isActive: true },
+        include: {
+          completions: {
+            where: {
+              completionDate: { gte: new Date(Date.now() - 7 * 86400000) },
+            },
+            orderBy: { completionDate: "desc" },
+          },
+        },
+      }),
+      prisma.sleepEntry.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 3,
+        select: { duration: true, score: true, createdAt: true },
+      }),
+    ]);
+
+    const lines = [];
+
+    if (moods.length) {
+      const recent = moods
+        .map((m) => {
+          const r = Array.isArray(m.result) ? m.result[0] : m.result;
+          const s = r?.sentiment || "?";
+          const desc = m.description || r?.primary_emotion || "";
+          return `- ${s}${desc ? `: ${desc}` : ""}`;
+        })
+        .join("\n");
+      lines.push(`Recent moods (newest first):\n${recent}`);
+    }
+
+    if (habits.length) {
+      const todayStr = new Date().toDateString();
+      const done = habits.filter((h) =>
+        h.completions.some((c) => new Date(c.completionDate).toDateString() === todayStr)
+      );
+      const totalToday = done.length;
+      const totalActive = habits.length;
+      lines.push(
+        `Today's habits: ${totalToday}/${totalActive} done${
+          done.length ? ` (${done.map((h) => h.title).join(", ")})` : ""
+        }.`
+      );
+    }
+
+    if (sleep.length) {
+      const last = sleep[0];
+      lines.push(`Last logged sleep: ${last.duration}h (score ${last.score}/100).`);
+    }
+
+    if (!lines.length) return "";
+    return `\n\nGentle context about the user (do NOT recite this back verbatim; let it inform tone and references when natural):\n${lines.join("\n")}\n`;
+  } catch (e) {
+    console.warn("buildUserContext failed:", e.message);
+    return "";
+  }
+}
+
 const SYSTEM_INSTRUCTIONS = `You are a warm, non-judgmental, supportive chat companion for people dealing with stress, anxiety, or low mood.
 
 Style:
@@ -111,8 +184,9 @@ router.post("/chat", authenticateApi, async (req, res) => {
       content: String(m.content ?? ""),
     }));
 
+    const userContext = await buildUserContext(userId);
     const messages = [
-      { role: "system", content: SYSTEM_INSTRUCTIONS },
+      { role: "system", content: SYSTEM_INSTRUCTIONS + userContext },
       ...trimmedHistory,
       { role: "user", content: message },
     ];

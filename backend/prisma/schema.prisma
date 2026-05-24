@@ -75,3 +75,33 @@ model ChatMessage {
   @@index([conversationId])
   @@map("chat_messages")
 }
+
+// Per-user preferences. userId is the Clerk user id (no User table).
+model UserProfile {
+  userId         String   @id
+  theme          String   @default("light") // "light" | "dark"
+  quietMode      Boolean  @default(false)   // hides streaks/numbers
+  companionMode  String   @default("warm")  // "warm" | "coach" | "stoic" | "curious"
+  primaryFocus   String?                    // "anxiety" | "sleep" | "focus" | "low_mood" | "curious"
+  remindersOptIn Boolean  @default(false)
+  reminderTime   String?                    // "21:00"
+  onboardingDone Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("user_profiles")
+}
+
+model SleepEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  bedtime   String   // "22:30"
+  waketime  String   // "06:30"
+  duration  Float    // hours, 1 decimal
+  score     Int      // 0-100
+  notes     String?  @default("")
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("sleep_entries")
+}

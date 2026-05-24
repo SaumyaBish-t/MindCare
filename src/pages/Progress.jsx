@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "@clerk/clerk-react";
 import {
   ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip,
 } from "recharts";
 import { Icon } from "../lib/icon.jsx";
 import { PageHeader, useToast } from "../components/ui-common.jsx";
+import { api } from "../lib/api.js";
 
-const STORAGE_KEY = "mindcare:sleep";
+const STORAGE_KEY = "mindcare:sleep"; // legacy — used only to migrate older entries once
 
 const AFFIRMATIONS = [
   "Rest is productive too.",
@@ -53,20 +55,62 @@ function SleepStat({ icon, label, value, accent, small }) {
 }
 
 const Sleep = () => {
+  const { getToken } = useAuth();
   const [entries, setEntries] = useState([]);
   const [bedtime, setBedtime] = useState("22:30");
   const [waketime, setWaketime] = useState("06:30");
   const [breathePhase, setBreathePhase] = useState("Inhale");
   const [breatheActive, setBreatheActive] = useState(false);
   const [musicTab, setMusicTab] = useState("rain");
+  const [saving, setSaving] = useState(false);
   const { show, node: toastNode } = useToast();
 
+  // Load entries from backend; one-time migrate any stale localStorage entries.
   useEffect(() => {
-    try {
-      const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-      setEntries(raw);
-    } catch { /* noop */ }
-  }, []);
+    let alive = true;
+    (async () => {
+      try {
+        const data = await api.sleepList(getToken);
+        if (!alive) return;
+        const fromServer = (data?.entries || []).map((e) => ({
+          id: e.id,
+          bedtime: e.bedtime,
+          waketime: e.waketime,
+          duration: e.duration,
+          score: e.score,
+          date: new Date(e.createdAt).toLocaleDateString("en", { weekday: "short" }),
+          ts: new Date(e.createdAt).getTime(),
+        }));
+
+        // Migrate legacy localStorage entries on first load if server is empty.
+        let migrated = [];
+        try {
+          const legacy = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+          if (legacy.length && fromServer.length === 0) {
+            for (const e of legacy) {
+              await api.sleepCreate(
+                { bedtime: e.bedtime, waketime: e.waketime, duration: e.duration, score: e.score },
+                getToken
+              );
+            }
+            localStorage.removeItem(STORAGE_KEY);
+            const re = await api.sleepList(getToken);
+            migrated = (re?.entries || []).map((e) => ({
+              id: e.id, bedtime: e.bedtime, waketime: e.waketime,
+              duration: e.duration, score: e.score,
+              date: new Date(e.createdAt).toLocaleDateString("en", { weekday: "short" }),
+              ts: new Date(e.createdAt).getTime(),
+            }));
+          }
+        } catch { /* noop */ }
+
+        if (alive) setEntries(migrated.length ? migrated : fromServer);
+      } catch (e) {
+        console.error("Sleep load failed:", e);
+      }
+    })();
+    return () => { alive = false; };
+  }, [getToken]);
 
   useEffect(() => {
     if (!breatheActive) return;
@@ -85,18 +129,33 @@ const Sleep = () => {
   const scoreColor = score === "Great" ? "success" : score === "Okay" ? "warning" : "danger";
   const numericScore = score === "Great" ? 88 : score === "Okay" ? 72 : 55;
 
-  const saveSleep = () => {
-    const entry = {
-      id: Date.now(),
-      bedtime, waketime, duration,
-      score: numericScore,
-      date: new Date().toLocaleDateString("en", { weekday: "short" }),
-      ts: Date.now(),
-    };
-    const next = [entry, ...entries].slice(0, 30);
-    setEntries(next);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    show("Sleep logged");
+  const saveSleep = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const r = await api.sleepCreate(
+        { bedtime, waketime, duration, score: numericScore },
+        getToken
+      );
+      if (r?.success && r.entry) {
+        const e = r.entry;
+        setEntries((prev) => [
+          {
+            id: e.id, bedtime: e.bedtime, waketime: e.waketime,
+            duration: e.duration, score: e.score,
+            date: new Date(e.createdAt).toLocaleDateString("en", { weekday: "short" }),
+            ts: new Date(e.createdAt).getTime(),
+          },
+          ...prev,
+        ]);
+        show("Sleep logged");
+      }
+    } catch (e) {
+      console.error(e);
+      show("Failed to log sleep", "error");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const affirmation = AFFIRMATIONS[Math.floor((Date.now() / 86400000) % AFFIRMATIONS.length)];
@@ -139,8 +198,8 @@ const Sleep = () => {
               {duration}h <span className={`pill pill-${scoreColor}`} style={{ marginLeft: 6, fontSize: 11 }}>{score}</span>
             </span>
           </div>
-          <button className="btn btn-primary" onClick={saveSleep} style={{ width: "100%" }}>
-            <Icon name="check" size={16} /> Save sleep
+          <button className="btn btn-primary" onClick={saveSleep} style={{ width: "100%" }} disabled={saving}>
+            <Icon name="check" size={16} /> {saving ? "Saving…" : "Save sleep"}
           </button>
         </div>
 

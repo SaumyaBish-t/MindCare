@@ -7,8 +7,8 @@ import { clerkMiddleware } from '@clerk/express';
 import gratitudeRoutes from './routes/gratitude.js';
 import sentimentRoutes from './routes/sentiment.js';
 import habitRoutes from './routes/habits.js';
-import { Client } from '@gradio/client';
 import chatRoutes from './routes/chat.js';
+import sleepRoutes from './routes/sleep.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -56,35 +56,12 @@ app.post('/api/reminders/_ping', (req, res) => {
   res.json({ ok: true });
 });
 
-// Feature routers (unchanged)
+// Feature routers
 app.use('/api/sentiment', sentimentRoutes);
-app.use('/api', habitRoutes);           // ensure paths inside habits.js are relative to /api
+app.use('/api', habitRoutes);
 app.use('/api', gratitudeRoutes);
-app.use("/api", chatRoutes);
-
-// Gradio client (kept) with lazy connect
-let client = null;
-async function getClient() {
-  if (!client) {
-    client = await Client.connect('SamOp224/mental-health-sentiment');
-  }
-  return client;
-}
-
-// Duplicate sentiment analyze route kept as in your code
-app.post('/api/sentiment/analyze', async (req, res) => {
-  try {
-    const { text } = req.body;
-    if (!text) return res.status(400).json({ error: 'Text is required' });
-
-    const gradioClient = await getClient();
-    const result = await gradioClient.predict('/predict', { text });
-
-    res.json({ success: true, data: result.data });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+app.use('/api', chatRoutes);
+app.use('/api', sleepRoutes);
 
 // Global error handler to surface any unexpected errors
 app.use((err, _req, res, _next) => {
