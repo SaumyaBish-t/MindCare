@@ -212,9 +212,16 @@ label.field-label {
 }
 
 /* ============ Layout ============ */
-.container { max-width: 1152px; margin: 0 auto; padding: 0 24px; }
-.container-md { max-width: 896px; margin: 0 auto; padding: 0 24px; }
-.container-sm { max-width: 720px; margin: 0 auto; padding: 0 24px; }
+/* Wider containers so the UI uses the screen on large monitors.
+   Reading-width variants (.container-md / .container-sm) stay narrower
+   for text-heavy pages where line length matters. */
+.container    { max-width: 1440px; margin: 0 auto; padding: 0 32px; }
+.container-md { max-width: 1080px; margin: 0 auto; padding: 0 32px; }
+.container-sm { max-width: 800px;  margin: 0 auto; padding: 0 24px; }
+
+@media (max-width: 1024px) {
+  .container, .container-md { padding: 0 24px; }
+}
 
 .muted { color: var(--dawn-text-muted); }
 .text-sm { font-size: 13px; }
@@ -315,9 +322,9 @@ label.field-label {
 }
 
 /* ============ Grid utilities ============ */
-.grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
 
 .footer-grid {
   display: grid;

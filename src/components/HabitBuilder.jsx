@@ -137,7 +137,7 @@ const HabitBuilder = () => {
   }
 
   return (
-    <div className="container fade-in" style={{ padding: "40px 24px 64px", maxWidth: 1120 }}>
+    <div className="container fade-in" style={{ padding: "40px 32px 64px" }}>
       <PageHeader
         icon="target"
         title="Habit builder"
