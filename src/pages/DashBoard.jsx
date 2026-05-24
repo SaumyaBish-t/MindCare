@@ -37,18 +37,18 @@ function StatCard({ icon, label, value, sub, accent, progress, onClick }) {
       onClick={onClick}
       className="card card-hover"
       style={{
-        padding: 20, textAlign: "left", background: "var(--dawn-surface)",
-        display: "flex", flexDirection: "column", gap: 10,
+        padding: 28, textAlign: "left", background: "var(--dawn-surface)",
+        display: "flex", flexDirection: "column", gap: 14, minHeight: 160,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div className="icon-bubble icon-bubble-sm" style={{ background: bg(accent), color: fg(accent) }}>
-          <Icon name={icon} size={16} />
+        <div className="icon-bubble" style={{ background: bg(accent), color: fg(accent) }}>
+          <Icon name={icon} size={20} />
         </div>
-        <span style={{ fontSize: 12, color: "var(--dawn-text-muted)", fontWeight: 500 }}>{label}</span>
+        <span style={{ fontSize: 13, color: "var(--dawn-text-muted)", fontWeight: 500 }}>{label}</span>
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: fg(accent), lineHeight: 1.1 }}>{value}</div>
-      <div style={{ fontSize: 12, color: "var(--dawn-text-muted)" }}>{sub}</div>
+      <div style={{ fontSize: 32, fontWeight: 700, color: fg(accent), lineHeight: 1.1 }}>{value}</div>
+      <div style={{ fontSize: 13, color: "var(--dawn-text-muted)" }}>{sub}</div>
       {progress !== undefined && (
         <div style={{ height: 6, background: "var(--dawn-peach-subtle)", borderRadius: 999, overflow: "hidden" }}>
           <div style={{ width: `${progress * 100}%`, height: "100%", background: fg(accent), transition: "width 0.4s ease" }} />
@@ -191,16 +191,16 @@ const Dashboard = () => {
                 key={a.title}
                 className="card card-hover"
                 onClick={() => navigate(a.to)}
-                style={{ padding: 20, textAlign: "left", display: "flex", gap: 14, alignItems: "flex-start", background: "var(--dawn-surface)" }}
+                style={{ padding: 24, textAlign: "left", display: "flex", gap: 16, alignItems: "center", background: "var(--dawn-surface)", minHeight: 96 }}
               >
                 <div className="icon-bubble" style={{ background: bg(a.color), color: fg(a.color) }}>
-                  <Icon name={a.icon} size={20} />
+                  <Icon name={a.icon} size={22} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, color: "var(--dawn-text-primary)", marginBottom: 2 }}>{a.title}</div>
-                  <div style={{ fontSize: 13, color: "var(--dawn-text-muted)" }}>{a.desc}</div>
+                  <div style={{ fontWeight: 600, fontSize: 16, color: "var(--dawn-text-primary)", marginBottom: 4 }}>{a.title}</div>
+                  <div style={{ fontSize: 14, color: "var(--dawn-text-muted)" }}>{a.desc}</div>
                 </div>
-                <Icon name="arrow-right" size={16} color="var(--dawn-text-muted)" />
+                <Icon name="arrow-right" size={18} color="var(--dawn-text-muted)" />
               </button>
             ))}
           </div>
