@@ -11,13 +11,13 @@
     "@clerk/clerk-sdk-node": "^5.1.6",
     "@clerk/express": "^1.7.10",
     "@getbrevo/brevo": "^3.0.1",
-    "@google/genai": "^1.30.0",
     "@gradio/client": "^1.15.6",
     "@prisma/client": "^5.22.0",
     "@prisma/extension-accelerate": "^2.0.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "groq-sdk": "^1.2.0",
     "pg": "^8.16.3"
   },
   "devDependencies": {

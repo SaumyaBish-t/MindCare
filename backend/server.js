@@ -8,7 +8,7 @@ import gratitudeRoutes from './routes/gratitude.js';
 import sentimentRoutes from './routes/sentiment.js';
 import habitRoutes from './routes/habits.js';
 import { Client } from '@gradio/client';
-import chatRoutes from './routes/gemini.js'
+import chatRoutes from './routes/chat.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
